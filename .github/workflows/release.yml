@@ -2,7 +2,11 @@ name: release
 
 # A release updates the three version fields and both changelogs, then tags the
 # release commit as vX.Y.Z. This workflow verifies that contract, rebuilds the
-# bundles, and creates the GitHub release from CHANGELOG.md.
+# bundles, and publishes them on the GitHub release.
+#
+# Unlike the sibling plugin repositories, the release *is* the distribution
+# channel here: nothing lands on npm, so the artifacts have to be attached and
+# the notes have to tell a visitor how to install them.
 
 on:
   push:
@@ -13,11 +17,11 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
-    name: build and publish artifacts
+  build:
+    name: build the bundles
     # 22.04 is Tauri's recommended baseline: it ships libwebkit2gtk-4.1-dev in
     # its own repositories, and building the AppImage there keeps its glibc
     # floor lower than a build on a newer runner would.
@@ -31,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -76,23 +80,69 @@ jobs:
       - name: install frontend tooling
         run: pnpm install --frozen-lockfile
 
+      # `bundle.targets` is "all", so the Linux bundles are named explicitly
+      # here; the two that need a different host are left for the platform
+      # matrix that is not enabled yet (see the note at the end of this file).
       - name: build bundles
-        run: pnpm tauri build --bundles deb,appimage
+        run: pnpm tauri build --bundles deb,rpm,appimage
 
-      - name: collect artifacts
+      - name: collect artifacts and checksums
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cp src-tauri/target/release/bundle/deb/*.deb dist/
+          cp src-tauri/target/release/bundle/rpm/*.rpm dist/
           cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
+          # Globs are named rather than `*`: the redirection creates SHA256SUMS
+          # before the glob expands, so `*` would checksum the empty file it is
+          # about to become. An unmatched glob also fails here, which is what a
+          # missing bundle should do.
+          (cd dist && sha256sum -- *.deb *.rpm *.AppImage > SHA256SUMS)
           ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # create the release and attach assets
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundles
+          path: dist
 
       - name: release notes from the changelog
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          version="${GITHUB_REF_NAME#v}"
+          {
+            echo '## 安装'
+            echo
+            echo 'Debian / Ubuntu：'
+            echo
+            echo '```sh'
+            echo "sudo apt install \"./DSH.XSWTauri_${version}_amd64.deb\""
+            echo '```'
+            echo
+            echo 'AppImage：给文件加可执行位后直接运行。'
+            echo
+            echo '下载后可用 `sha256sum -c SHA256SUMS` 校验完整性。'
+            echo
+            echo '---'
+            echo
+            node scripts/release-notes.mjs "$version"
+          } > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
       # Not gated on anything upstream being absent: a tag pushed before the
@@ -104,11 +154,41 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
           notes="$(cat "$RUNNER_TEMP/notes.md")"
+          # A prerelease version string marks the release as one, so an rc or
+          # alpha tag never presents itself as the recommended download.
+          case "$version" in
+            *-*) prerelease=1 ;;
+            *)   prerelease=0 ;;
+          esac
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             echo "::warning::release ${GITHUB_REF_NAME} already exists - refreshing its assets and notes"
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes"
+            if [ "$prerelease" = 1 ]; then
+              gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes" --prerelease
+            else
+              gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes"
+            fi
+          elif [ "$prerelease" = 1 ]; then
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes" --prerelease dist/*
           else
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes" dist/*
           fi
+
+# Windows and macOS bundles are deliberately not built yet. `bundle.targets` is
+# "all", but the shell's Windows paths only just started being exercised by the
+# compat matrix, and a release is the wrong place to discover they do not work.
+# Once that leg is green and a manual run has confirmed the shell really starts
+# a server there, turn this job into a matrix:
+#
+#   strategy:
+#     matrix:
+#       include:
+#         - { os: ubuntu-22.04,   bundles: deb,rpm,appimage }
+#         - { os: windows-latest, bundles: nsis }
+#         - { os: macos-latest,   bundles: dmg }
+#
+# then widen the artifact collection to whatever each host produces. macOS
+# bundles are unsigned, so Gatekeeper warns on first open until a signing
+# identity is configured.
