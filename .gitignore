@@ -1,0 +1,60 @@
+# Rust build output
+target/
+
+# Node
+node_modules/
+
+# Tauri generated files
+/src-tauri/gen/
+
+# Package artifacts
+*.tgz
+*.tar.gz
+*.deb
+*.AppImage
+*.rpm
+.npm/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.npmrc
+*.pem
+*.key
+*.p12
+*.sig
+
+# Ad-hoc QA scripts and scratch
+/bootcheck.sh
+/diag.sh
+/repro*.sh
+/test-*
+/testplace/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+
+# Agent tooling
+.workbuddy/
+.claude/
+.codex/
+.cursor/
+.continue/
+.aider*
+*.local.md
