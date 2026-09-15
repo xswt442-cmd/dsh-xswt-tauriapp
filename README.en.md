@@ -20,10 +20,11 @@ A lightweight Tauri desktop shell for DeepSeek Harness. It reuses or starts a lo
 
 ### From a release
 
-Download the `.deb` or `.AppImage` from the Releases page. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
+Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage,
+together with `SHA256SUMS`. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
 
 ```sh
-sudo apt install "./DSH XSWTauri_0.1.0_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.1.0_amd64.deb"
 ```
 
 ### From source
@@ -82,9 +83,10 @@ The launch prompt only offers a candidate from a channel at least as stable as t
 
 | Item | Status |
 |---|---|
-| Linux (deb / AppImage) | Supported |
+| Linux (deb / rpm / AppImage) | Supported; produced by CI |
+| Windows (NSIS installer) | Build wired up; the core logic is verified on `windows-latest` by CI, the GUI has not been exercised |
+| macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
 | WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
-| Windows / macOS | Bundle targets and code paths are branched per platform, untested |
 
 ## Development and verification
 

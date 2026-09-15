@@ -20,10 +20,11 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳。它复用或启动本机的 `dsh
 
 ### 使用 Release 产物
 
-从 Releases 页面下载 `.deb` 或 `.AppImage`。deb 仅依赖 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`：
+每个 release 附带 Windows 安装包、macOS dmg、deb、rpm 与 AppImage，并附 `SHA256SUMS`。
+deb 仅依赖 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`：
 
 ```sh
-sudo apt install "./DSH XSWTauri_0.1.0_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.1.0_amd64.deb"
 ```
 
 ### 从源码构建
@@ -82,9 +83,10 @@ pnpm tauri build --bundles deb,appimage
 
 | 项 | 状态 |
 |---|---|
-| Linux（deb / AppImage） | 支持 |
+| Linux（deb / rpm / AppImage） | 支持，由 CI 产出 |
+| Windows（NSIS 安装包） | 构建已接入；核心逻辑经 CI 在 `windows-latest` 上验证，GUI 未实测 |
+| macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
 | WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
-| Windows / macOS | 打包目标与代码路径均已按平台分支，未验证 |
 
 ## 开发与验证
 

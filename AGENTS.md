@@ -1,6 +1,6 @@
 # Agent guide
 
-`DSH XSWTauri` is a Tauri shell for DeepSeek Harness: it reuses or starts a
+`dsh-xswt-tauriapp` is a Tauri shell for DeepSeek Harness: it reuses or starts a
 local `dsh web` server, embeds it, and offers dsh updates on launch. It does not
 modify, patch or vendor dsh.
 
