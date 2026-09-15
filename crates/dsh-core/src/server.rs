@@ -386,9 +386,15 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 /// Wait until a freshly spawned server serves its UI, or give up.
 ///
 /// Returns `None` when the timeout elapses or the child exits first.
+///
+/// The deadline is wall-clock, not a count of attempts: one probe can take
+/// several seconds (a TCP connect bound plus an HTTP timeout), so counting
+/// iterations would let "120 seconds" stretch to many minutes on a host where
+/// the server never comes up. The probe also runs before the first sleep, so an
+/// already-listening server is not delayed by one interval.
 pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<String> {
-    for _ in 0..timeout_secs {
-        std::thread::sleep(Duration::from_secs(1));
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
         if let Some(url) = resolve_ui_url(port) {
             return Some(url);
         }
@@ -397,8 +403,11 @@ pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<St
             Ok(None) => {}
             Err(_) => return None,
         }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(500));
     }
-    None
 }
 
 /// Outcome of bringing the UI up.
