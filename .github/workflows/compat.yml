@@ -99,8 +99,15 @@ jobs:
       - name: report the host version under test
         shell: bash
         run: |
-          root="$(npm root -g)"
-          version="$(node -p "require('$root/@deepseek-ai/dsh/package.json').version")"
+          # `npm root -g` is a Windows path on Windows. Handing it to node
+          # through the environment and joining it there avoids interpolating
+          # backslashes into a JS string literal, where they would be read as
+          # escapes — which is what broke this step on windows-latest.
+          version="$(DSH_NPM_ROOT="$(npm root -g)" node -e "
+            const path = require('node:path');
+            const manifest = path.join(process.env.DSH_NPM_ROOT, '@deepseek-ai', 'dsh', 'package.json');
+            process.stdout.write(require(manifest).version);
+          ")"
           echo "dsh host under test: $version (${{ matrix.dsh-spec }})"
 
       # This is the shell's own discovery path: port band, token read from the
