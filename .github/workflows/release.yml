@@ -1,8 +1,9 @@
 name: release
 
 # A release updates the three version fields and both changelogs, then tags the
-# release commit as vX.Y.Z. This workflow verifies that contract, rebuilds the
-# bundles, and publishes them on the GitHub release.
+# release commit as vX.Y.Z. This workflow verifies that contract, builds the
+# bundles for every supported platform, and publishes them on the GitHub
+# release.
 #
 # Unlike the sibling plugin repositories, the release *is* the distribution
 # channel here: nothing lands on npm, so the artifacts have to be attached and
@@ -20,22 +21,22 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: build the bundles
-    # 22.04 is Tauri's recommended baseline: it ships libwebkit2gtk-4.1-dev in
-    # its own repositories, and building the AppImage there keeps its glibc
-    # floor lower than a build on a newer runner would.
+  # Runs once, not per platform: the tag contract and the test suite do not
+  # depend on the host, and a release should not be gated four times over.
+  verify:
+    name: verify the release commit
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
+      # The shell tests link the GUI, so the toolchain is needed even here.
       - name: install Tauri system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -48,10 +49,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12
 
       - name: tag matches every declared version
         shell: bash
@@ -77,33 +74,86 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --lib
           node scripts/check-docs.mjs
 
+  build:
+    name: bundle ${{ matrix.artifact }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 is Tauri's recommended baseline: it ships libwebkit2gtk-4.1-dev
+          # in its own repositories, and building the AppImage there keeps its
+          # glibc floor lower than a build on a newer runner would.
+          - { os: ubuntu-22.04,   bundles: 'deb,rpm,appimage', artifact: linux-x64 }
+          - { os: windows-latest, bundles: 'nsis',             artifact: windows-x64 }
+          # Both macOS architectures are built from the arm64 runner by adding
+          # the other target, rather than relying on the x64 image, which is on
+          # its way out.
+          - { os: macos-latest, bundles: 'dmg', artifact: macos-arm64, target: aarch64-apple-darwin }
+          - { os: macos-latest, bundles: 'dmg', artifact: macos-x64,   target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install Tauri system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/dsh-core
+            src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: add the cross target
+        if: matrix.target != ''
+        shell: bash
+        run: rustup target add "${{ matrix.target }}"
+
       - name: install frontend tooling
         run: pnpm install --frozen-lockfile
 
-      # `bundle.targets` is "all", so the Linux bundles are named explicitly
-      # here; the two that need a different host are left for the platform
-      # matrix that is not enabled yet (see the note at the end of this file).
       - name: build bundles
-        run: pnpm tauri build --bundles deb,rpm,appimage
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.target }}" ]; then
+            pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+          else
+            pnpm tauri build --bundles "${{ matrix.bundles }}"
+          fi
 
-      - name: collect artifacts and checksums
+      - name: collect artifacts
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp src-tauri/target/release/bundle/deb/*.deb dist/
-          cp src-tauri/target/release/bundle/rpm/*.rpm dist/
-          cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
-          # Globs are named rather than `*`: the redirection creates SHA256SUMS
-          # before the glob expands, so `*` would checksum the empty file it is
-          # about to become. An unmatched glob also fails here, which is what a
-          # missing bundle should do.
-          (cd dist && sha256sum -- *.deb *.rpm *.AppImage > SHA256SUMS)
+          # One expression covers both layouts: with --target the bundle lands
+          # under target/<triple>/release/, without it under target/release/.
+          find src-tauri/target -path '*/release/bundle/*' -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
+               -o -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \) \
+            -exec cp {} dist/ \;
+          [ -n "$(ls -A dist)" ] || { echo '::error::no bundle was produced'; exit 1; }
           ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bundles
+          name: bundles-${{ matrix.artifact }}
           path: dist/*
           if-no-files-found: error
 
@@ -118,8 +168,21 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: bundles
+          pattern: bundles-*
+          merge-multiple: true
           path: dist
+
+      - name: checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Computed once, here, rather than per platform: macOS ships
+          # `shasum -a 256` rather than `sha256sum`, and one file covering every
+          # artifact is easier to verify than four.
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%P\0' \
+            | sort -z | xargs -0 sha256sum -- > SHA256SUMS
+          cat SHA256SUMS
 
       - name: release notes from the changelog
         shell: bash
@@ -129,13 +192,25 @@ jobs:
           {
             echo '## 安装'
             echo
-            echo 'Debian / Ubuntu：'
+            echo '| 平台 | 文件 |'
+            echo '|---|---|'
+            echo '| Windows | `*-setup.exe` |'
+            echo '| macOS | `*.dmg` |'
+            echo '| Debian / Ubuntu | `*_amd64.deb` |'
+            echo '| Fedora / RHEL | `*.rpm` |'
+            echo '| 任意 Linux | `*.AppImage` |'
             echo
             echo '```sh'
-            echo "sudo apt install \"./DSH.XSWTauri_${version}_amd64.deb\""
+            echo "# Debian / Ubuntu"
+            echo "sudo apt install ./dsh-xswt-tauriapp_${version}_amd64.deb"
+            echo "# Fedora / RHEL"
+            echo "sudo dnf install ./dsh-xswt-tauriapp-${version}-1.x86_64.rpm"
+            echo "# AppImage"
+            echo "chmod +x ./dsh-xswt-tauriapp_${version}_amd64.AppImage && ./dsh-xswt-tauriapp_${version}_amd64.AppImage"
             echo '```'
             echo
-            echo 'AppImage：给文件加可执行位后直接运行。'
+            echo 'macOS 构建未签名，首次打开需右键 →「打开」，或执行'
+            echo '`xattr -dr com.apple.quarantine /Applications/dsh-xswt-tauriapp.app`。'
             echo
             echo '下载后可用 `sha256sum -c SHA256SUMS` 校验完整性。'
             echo
@@ -175,20 +250,3 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes" dist/*
           fi
-
-# Windows and macOS bundles are deliberately not built yet. `bundle.targets` is
-# "all", but the shell's Windows paths only just started being exercised by the
-# compat matrix, and a release is the wrong place to discover they do not work.
-# Once that leg is green and a manual run has confirmed the shell really starts
-# a server there, turn this job into a matrix:
-#
-#   strategy:
-#     matrix:
-#       include:
-#         - { os: ubuntu-22.04,   bundles: deb,rpm,appimage }
-#         - { os: windows-latest, bundles: nsis }
-#         - { os: macos-latest,   bundles: dmg }
-#
-# then widen the artifact collection to whatever each host produces. macOS
-# bundles are unsigned, so Gatekeeper warns on first open until a signing
-# identity is configured.
