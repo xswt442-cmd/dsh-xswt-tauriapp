@@ -72,6 +72,9 @@ jobs:
   boot-check:
     name: dsh ${{ matrix.dsh-spec }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A guard on top of the code's own deadline: a leg that hangs must cost
+    # minutes, not the default six hours.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -131,11 +134,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
+          # The example leaves a detached server behind. On Windows a detached
+          # child inherits the parent's inheritable handles, and that includes
+          # the write end of a stdout pipe, so piping into `tail` never sees EOF
+          # and hangs until the job is cancelled. A file handle is held just as
+          # harmlessly and lets the parent exit.
+          out="$RUNNER_TEMP/launch.out"
+          cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch > "$out" 2>&1
+          url="$(tail -n1 "$out")"
           echo "resolved: $url"
           case "$url" in
             http://127.0.0.1:*'?token='*) ;;
-            *) echo "::error::the launch token was not recovered from the server log: $url"; exit 1 ;;
+            *) echo "::error::the launch token was not recovered from the server log: $url"; cat "$out"; exit 1 ;;
           esac
 
           jar="$RUNNER_TEMP/dsh.cookies"
@@ -153,8 +163,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          first="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
-          second="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
+          launch() {
+            cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch \
+              > "$RUNNER_TEMP/launch-$1.out" 2>&1
+            tail -n1 "$RUNNER_TEMP/launch-$1.out"
+          }
+          first="$(launch first)"
+          second="$(launch second)"
           echo "first:  $first"
           echo "second: $second"
           [ "$first" = "$second" ] || {
