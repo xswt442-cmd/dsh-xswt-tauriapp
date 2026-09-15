@@ -13,7 +13,7 @@ Release notes 由对应版本段生成；最新版本在前。
 - 更新候选仅取自稳定度不低于已装版本的通道，避免自动向 RC 或正式版用户推荐 Alpha。
 - 「不再提示此版本」按版本记录于应用配置目录，仅抑制该版本。
 - 窗口内站外链接交由系统默认程序打开。
-- 打包 deb 与 AppImage；release 关闭调试信息并启用 LTO 与体积优化。
+- 打包 Windows 安装包、macOS dmg、deb、rpm 与 AppImage；release 关闭调试信息并启用 LTO 与体积优化。
 
 ### 安全
 

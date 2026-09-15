@@ -13,7 +13,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - Update candidates come only from channels at least as stable as the installed version, so an RC or stable install is never prompted towards alpha.
 - "Don't remind me about this version" records the version in the app config directory and suppresses only that version.
 - Links leaving the app are opened by the desktop's default handler.
-- deb and AppImage bundles; the release profile disables debug info and enables LTO and size optimisation.
+- Windows installer, macOS dmg, deb, rpm and AppImage bundles; the release profile disables debug info and enables LTO and size optimisation.
 
 ### Security
 

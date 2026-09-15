@@ -32,9 +32,9 @@ sudo apt install "./dsh-xswt-tauriapp_0.1.0_amd64.deb"
 需要 Rust、Node 与 Tauri 的 Linux 系统依赖：
 
 ```sh
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev rpm
 pnpm install
-pnpm tauri build --bundles deb,appimage
+pnpm tauri build --bundles deb,rpm,appimage
 ```
 
 ## 使用
