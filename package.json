@@ -1,0 +1,42 @@
+{
+  "name": "dsh-xswt-tauriapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness 的轻量 Tauri 桌面外壳：复用或启动本机 dsh web 服务并嵌入原生窗口，启动时检查 dsh 更新。A lightweight Tauri desktop shell for DeepSeek Harness: reuses or starts a local dsh web server, embeds it in a native window, and offers dsh updates on launch.",
+  "license": "MIT",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build --bundles deb,appimage",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test": "cargo test --manifest-path crates/dsh-core/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "test:core": "cargo test --manifest-path crates/dsh-core/Cargo.toml",
+    "fmt": "cargo fmt --manifest-path crates/dsh-core/Cargo.toml && cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "fmt:check": "cargo fmt --manifest-path crates/dsh-core/Cargo.toml --check && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "clippy": "cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "docs:check": "node scripts/check-docs.mjs",
+    "release:notes": "node scripts/release-notes.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xswt442-cmd/dsh-xswt-tauriapp.git"
+  },
+  "homepage": "https://github.com/xswt442-cmd/dsh-xswt-tauriapp#readme",
+  "bugs": {
+    "url": "https://github.com/xswt442-cmd/dsh-xswt-tauriapp/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "deepseek",
+    "tauri",
+    "desktop-shell",
+    "webkit2gtk"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
