@@ -8,6 +8,7 @@ commit into `main`. Only release-ready changes belong on `main`.
 1. On `dev`, choose `X.Y.Z` and update:
    - `package.json#version`
    - `src-tauri/Cargo.toml#version`
+   - `crates/dsh-core/Cargo.toml#version`
    - `src-tauri/tauri.conf.json#version`
    - the first section of both changelogs: `## X.Y.Z - YYYY-MM-DD`
 2. Run:

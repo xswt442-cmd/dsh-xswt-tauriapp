@@ -1,6 +1,6 @@
 [package]
 name = "dsh-xswt-tauriapp-core"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "Shell-agnostic core for a DSH desktop wrapper: dsh web discovery, the token handshake, server lifecycle and the update-channel report. No GUI dependency, so it builds and tests without webkit2gtk."
 license = "MIT"

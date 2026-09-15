@@ -22,7 +22,8 @@ modify, patch or vendor dsh.
   server that is never stopped when the window closes.
 - Never offer an update from a channel less stable than the installed one, and
   keep "don't remind me" scoped to one version.
-- Keep the three version fields equal, and the README/CHANGELOG pairs in sync.
+- Keep every declared version equal — both crates, `package.json` and
+  `tauri.conf.json` — and the README/CHANGELOG pairs in sync.
 
 ## Verify
 

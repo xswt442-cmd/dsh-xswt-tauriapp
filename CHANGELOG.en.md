@@ -3,7 +3,7 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
-## 0.1.0 - 2026-09-15
+## 0.0.1 - 2026-09-15
 
 ### Added
 

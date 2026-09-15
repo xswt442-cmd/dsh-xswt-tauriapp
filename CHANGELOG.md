@@ -3,7 +3,7 @@
 Release notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
-## 0.1.0 - 2026-09-15
+## 0.0.1 - 2026-09-15
 
 ### 新增
 

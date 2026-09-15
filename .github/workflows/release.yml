@@ -57,8 +57,12 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
           conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)"
-          for pair in "package.json:$pkg" "tauri.conf.json:$conf" "src-tauri/Cargo.toml:$crate"; do
+          app="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)"
+          core="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/dsh-core/Cargo.toml | head -n1)"
+          # Both crates carry the repository version: the core crate is not
+          # published on its own, so a second version line would only ever drift.
+          for pair in "package.json:$pkg" "src-tauri/tauri.conf.json:$conf" \
+                      "src-tauri/Cargo.toml:$app" "crates/dsh-core/Cargo.toml:$core"; do
             name="${pair%%:*}"
             value="${pair#*:}"
             if [ "$value" != "$tag" ]; then
@@ -66,7 +70,7 @@ jobs:
               exit 1
             fi
           done
-          echo "all three version fields agree on $tag"
+          echo "all four version fields agree on $tag"
 
       - name: tests
         run: |
