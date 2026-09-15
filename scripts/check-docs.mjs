@@ -79,21 +79,31 @@ const normalizeLog = (file) => changelogShape(file).map((release) => ({
 }))
 assertEqual(normalizeLog('CHANGELOG.md'), normalizeLog('CHANGELOG.en.md'), 'CHANGELOG structure differs between languages')
 
+/** Git's all-zero revision, which GitHub reports as `before` for a new branch. */
+const NULL_REVISION = /^0+$/
+
 const baseIndex = process.argv.indexOf('--base')
 if (baseIndex !== -1) {
   const base = process.argv[baseIndex + 1]
   if (!base) throw new Error('--base requires a Git revision')
 
-  const changed = new Set(execFileSync('git', ['diff', '--name-only', base, 'HEAD'], { encoding: 'utf8' })
-    .split(/\r?\n/)
-    .filter(Boolean))
+  if (NULL_REVISION.test(base)) {
+    // A branch's first push reports `before` as the null revision, so there is
+    // no previous state to compare against. Failing here would fail every new
+    // branch; the paired-edit rule has nothing to say about a first import.
+    console.log(`no base revision (${base}); skipping the paired-edit check`)
+  } else {
+    const changed = new Set(execFileSync('git', ['diff', '--name-only', base, 'HEAD'], { encoding: 'utf8' })
+      .split(/\r?\n/)
+      .filter(Boolean))
 
-  for (const [primary, translation] of [
-    ['README.md', 'README.en.md'],
-    ['CHANGELOG.md', 'CHANGELOG.en.md'],
-  ]) {
-    if (changed.has(primary) !== changed.has(translation)) {
-      throw new Error(`${primary} and ${translation} must change together`)
+    for (const [primary, translation] of [
+      ['README.md', 'README.en.md'],
+      ['CHANGELOG.md', 'CHANGELOG.en.md'],
+    ]) {
+      if (changed.has(primary) !== changed.has(translation)) {
+        throw new Error(`${primary} and ${translation} must change together`)
+      }
     }
   }
 }
