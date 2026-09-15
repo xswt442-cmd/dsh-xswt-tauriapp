@@ -1,0 +1,114 @@
+name: release
+
+# A release updates the three version fields and both changelogs, then tags the
+# release commit as vX.Y.Z. This workflow verifies that contract, rebuilds the
+# bundles, and creates the GitHub release from CHANGELOG.md.
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish artifacts
+    # 22.04 is Tauri's recommended baseline: it ships libwebkit2gtk-4.1-dev in
+    # its own repositories, and building the AppImage there keeps its glibc
+    # floor lower than a build on a newer runner would.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/dsh-core
+            src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - name: tag matches every declared version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)"
+          for pair in "package.json:$pkg" "tauri.conf.json:$conf" "src-tauri/Cargo.toml:$crate"; do
+            name="${pair%%:*}"
+            value="${pair#*:}"
+            if [ "$value" != "$tag" ]; then
+              echo "::error::$name declares $value but the tag is $tag"
+              exit 1
+            fi
+          done
+          echo "all three version fields agree on $tag"
+
+      - name: tests
+        run: |
+          cargo test --manifest-path crates/dsh-core/Cargo.toml
+          cargo test --manifest-path src-tauri/Cargo.toml --lib
+          node scripts/check-docs.mjs
+
+      - name: install frontend tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: build bundles
+        run: pnpm tauri build --bundles deb,appimage
+
+      - name: collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp src-tauri/target/release/bundle/deb/*.deb dist/
+          cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
+          ls -l dist
+
+      - name: release notes from the changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      # Not gated on anything upstream being absent: a tag pushed before the
+      # release exists still needs its notes here, and re-running after a
+      # partial failure must converge rather than fail over an existing release.
+      - name: create or refresh the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="$(cat "$RUNNER_TEMP/notes.md")"
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "::warning::release ${GITHUB_REF_NAME} already exists - refreshing its assets and notes"
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "$notes" dist/*
+          fi

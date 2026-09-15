@@ -1,0 +1,26 @@
+name: docs
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  bilingual:
+    runs-on: ubuntu-latest
+    env:
+      DOCS_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: node scripts/check-docs.mjs
+      - name: require paired edits
+        if: env.DOCS_BASE != ''
+        run: node scripts/check-docs.mjs --base "$DOCS_BASE"

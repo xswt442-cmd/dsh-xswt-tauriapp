@@ -1,0 +1,143 @@
+name: compat
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+
+concurrency:
+  group: compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/dsh-core
+            src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: rustfmt
+        run: |
+          cargo fmt --manifest-path crates/dsh-core/Cargo.toml --check
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: clippy
+        run: |
+          cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: unit tests (core)
+        run: cargo test --manifest-path crates/dsh-core/Cargo.toml
+
+      - name: unit tests (shell)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+
+      - name: frontend syntax
+        run: node --input-type=module --check < web/main.js
+
+      - name: bilingual docs
+        run: node scripts/check-docs.mjs
+
+      # Unit tests do not link the GUI, so a broken webkit2gtk dependency or a
+      # bad tauri configuration would otherwise only surface at tag time.
+      - name: release build links the GUI
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+  boot-check:
+    name: dsh ${{ matrix.dsh-spec }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # Pin the declared compatibility line independently from the moving
+        # latest channel, so a regression is attributable to a known build.
+        dsh-spec: ['@0.1.5-rc.1', '@latest']
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/dsh-core
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: install dsh
+        shell: bash
+        run: npm i -g "@deepseek-ai/dsh${{ matrix.dsh-spec }}"
+
+      - name: report the host version under test
+        shell: bash
+        run: |
+          root="$(npm root -g)"
+          version="$(node -p "require('$root/@deepseek-ai/dsh/package.json').version")"
+          echo "dsh host under test: $version (${{ matrix.dsh-spec }})"
+
+      # This is the shell's own discovery path: port band, token read from the
+      # server log, two-step handshake, then a spawned server that must outlive
+      # the process which started it.
+      - name: discovery, spawn and handshake
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
+          echo "resolved: $url"
+          case "$url" in
+            http://127.0.0.1:*'?token='*) ;;
+            *) echo "::error::the launch token was not recovered from the server log: $url"; exit 1 ;;
+          esac
+
+          jar="$RUNNER_TEMP/dsh.cookies"
+          html="$RUNNER_TEMP/dsh-shell.html"
+          status="$(curl -sS --location --noproxy '*' -c "$jar" -b "$jar" -o "$html" -w '%{http_code}' "$url")"
+          [ "$status" = 200 ] || {
+            echo "::error::the shell answered $status"
+            cat "$html" || true
+            exit 1
+          }
+          grep -q 'DeepSeek Harness' "$html" || { echo '::error::the shell marker is missing'; exit 1; }
+          echo 'discovery, spawn and handshake passed'
+
+      - name: a second launch reuses the running server
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
+          second="$(cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch | tail -n1)"
+          echo "first:  $first"
+          echo "second: $second"
+          [ "$first" = "$second" ] || {
+            echo '::error::the second launch did not reuse the running server'
+            exit 1
+          }
+          echo 'reuse passed'
