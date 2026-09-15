@@ -80,17 +80,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Every leg names its target explicitly, including the native ones, so
+        # the build steps need no conditional. A missing matrix key evaluates to
+        # null rather than to the empty string, and `null != ''` is true, so a
+        # guard written the obvious way would run the cross-target step on the
+        # legs that have no target at all.
         include:
           # 22.04 is Tauri's recommended baseline: it ships libwebkit2gtk-4.1-dev
           # in its own repositories, and building the AppImage there keeps its
           # glibc floor lower than a build on a newer runner would.
-          - { os: ubuntu-22.04,   bundles: 'deb,rpm,appimage', artifact: linux-x64 }
-          - { os: windows-latest, bundles: 'nsis',             artifact: windows-x64 }
-          # Both macOS architectures are built from the arm64 runner by adding
-          # the other target, rather than relying on the x64 image, which is on
-          # its way out.
-          - { os: macos-latest, bundles: 'dmg', artifact: macos-arm64, target: aarch64-apple-darwin }
-          - { os: macos-latest, bundles: 'dmg', artifact: macos-x64,   target: x86_64-apple-darwin }
+          - { os: ubuntu-22.04,   bundles: 'deb,rpm,appimage', artifact: linux-x64,     target: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, bundles: 'nsis',             artifact: windows-x64,   target: x86_64-pc-windows-msvc }
+          # Both macOS architectures come from the arm64 runner, rather than
+          # depending on the x64 image, which is on its way out.
+          - { os: macos-latest,   bundles: 'dmg',              artifact: macos-arm64,   target: aarch64-apple-darwin }
+          - { os: macos-latest,   bundles: 'dmg',              artifact: macos-x64,     target: x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -119,8 +123,8 @@ jobs:
         with:
           version: 12
 
-      - name: add the cross target
-        if: matrix.target != ''
+      # Harmless for a native target, required for the second macOS one.
+      - name: add the build target
         shell: bash
         run: rustup target add "${{ matrix.target }}"
 
@@ -131,11 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${{ matrix.target }}" ]; then
-            pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
-          else
-            pnpm tauri build --bundles "${{ matrix.bundles }}"
-          fi
+          pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
 
       - name: collect artifacts
         shell: bash
