@@ -338,23 +338,36 @@ impl Shortcuts {
                 return;
             };
             if focused {
+                let mut acquired = 0;
                 for (shortcut, _) in &self.bindings {
                     // A desktop environment may already own one of these keys.
                     // That costs a gesture, not the session, so it is logged and
                     // skipped rather than raised.
-                    if let Err(error) = manager.register(*shortcut) {
-                        shell_log!("[dsh-harness] could not bind {shortcut:?}: {error}");
+                    match manager.register(*shortcut) {
+                        Ok(()) => acquired += 1,
+                        Err(error) => {
+                            shell_log!("[dsh-harness] could not bind {shortcut:?}: {error}");
+                        }
                     }
                 }
                 shell_log!(
-                    "[dsh-harness] shortcuts held ({} bindings)",
+                    "[dsh-harness] shortcuts held ({acquired}/{} bindings)",
                     self.bindings.len()
                 );
             } else {
-                let hotkeys: Vec<Shortcut> = self.bindings.iter().map(|(key, _)| *key).collect();
-                if let Err(error) = manager.unregister_all(&hotkeys) {
-                    shell_log!("[dsh-harness] could not release the shortcuts: {error}");
-                } else {
+                // Released one at a time on purpose: `unregister_all` stops at the
+                // first key it cannot release, so a single key the desktop refused
+                // to register would leave every key after it held for good.
+                let mut released = 0;
+                for (shortcut, _) in &self.bindings {
+                    match manager.unregister(*shortcut) {
+                        Ok(()) => released += 1,
+                        Err(error) => {
+                            shell_log!("[dsh-harness] could not release {shortcut:?}: {error}");
+                        }
+                    }
+                }
+                if released == self.bindings.len() {
                     shell_log!("[dsh-harness] shortcuts released");
                 }
             }
