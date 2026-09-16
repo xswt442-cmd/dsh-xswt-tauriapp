@@ -88,6 +88,11 @@ struct Shell {
     store: updates::DismissStore,
     /// Where the do-not-remind list is persisted.
     dismiss_path: Option<PathBuf>,
+    /// The shell's own page, captured at setup so a failed hand-off can come
+    /// back to a page that can explain itself.
+    shell_url: Option<String>,
+    /// How many times the hand-off has been retried.
+    handoff_retries: u32,
 }
 
 type SharedShell = Arc<Mutex<Shell>>;
@@ -270,20 +275,47 @@ fn dismissed_versions(shell: State<'_, SharedShell>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Install one dsh version globally, then restart so the new launcher is used.
+/// The `npm` that owns the dsh this shell is actually running against.
 ///
-/// The install runs through the `npm` that sits next to the `node` this shell
-/// already resolved, so a version-managed node (nvm, fnm) updates its own
-/// global prefix instead of some other npm on PATH.
-#[tauri::command]
-fn apply_update(app: AppHandle, version: String) -> Result<(), String> {
-    let node = server::resolve_node().ok_or_else(|| "未找到 node 可执行文件".to_string())?;
-    let bin_dir = node.parent().ok_or_else(|| "node 路径异常".to_string())?;
-    let npm = ["npm", "npm.cmd", "npm.exe"]
+/// Derived from the launcher rather than from `PATH`. A desktop launch inherits
+/// a minimal `PATH`, where the first `node` is often an older system one — on
+/// this machine `/usr/bin/node` is v18 and its npm installs into `/usr/local`,
+/// which is both a different prefix from the dsh in use and not writable by an
+/// ordinary user. Installing there updates nothing this shell can see, or fails
+/// outright, which is exactly what a launched-from-the-menu update used to do.
+fn npm_for_dsh() -> Option<PathBuf> {
+    let launcher = std::fs::canonicalize(server::resolve_dsh_bin()?).ok()?;
+    let bin_dir = server::node_prefix_of(&launcher)?.join("bin");
+    ["npm", "npm.cmd", "npm.exe"]
         .iter()
         .map(|name| bin_dir.join(name))
         .find(|candidate| candidate.is_file())
-        .ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))?;
+}
+
+/// The `npm` to install through: the one that owns dsh, else the one beside the
+/// resolved `node`, else nothing.
+fn npm_for_update() -> Result<PathBuf, String> {
+    if let Some(npm) = npm_for_dsh() {
+        return Ok(npm);
+    }
+    let node = server::resolve_node()
+        .ok_or_else(|| "未找到 node，也无法从 dsh 安装位置推断 npm。".to_string())?;
+    let bin_dir = node.parent().ok_or_else(|| "node 路径异常".to_string())?;
+    ["npm", "npm.cmd", "npm.exe"]
+        .iter()
+        .map(|name| bin_dir.join(name))
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))
+}
+
+/// Install one dsh version globally, then restart so the new launcher is used.
+///
+/// The install runs through the npm that owns the dsh being updated, so a
+/// version-managed node (nvm, fnm) updates its own global prefix rather than
+/// whichever prefix some other npm on `PATH` happens to own.
+#[tauri::command]
+fn apply_update(app: AppHandle, version: String) -> Result<(), String> {
+    let npm = npm_for_update()?;
 
     let args = updates::install_argv(&version);
     let output = Command::new(&npm)
@@ -294,7 +326,8 @@ fn apply_update(app: AppHandle, version: String) -> Result<(), String> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "npm {} 失败（退出码 {:?}）\n{}\n{}",
+            "{} {} 失败（退出码 {:?}）\n{}\n{}",
+            npm.display(),
             args.join(" "),
             output.status.code(),
             stdout.trim(),
@@ -364,15 +397,90 @@ const DIAG_SCRIPT: &str = r#"
   document.addEventListener('DOMContentLoaded', function () {
     report('dom-ready', 'hasTauriGlobal=' + (typeof window.__TAURI__) +
       ' hasInternals=' + (typeof window.__TAURI_INTERNALS__));
+    // This script runs on every page load, including the dsh UI. Landing on
+    // dsh's own auth page means the hand-off carried a token that was no longer
+    // good; without this the window just sits on that text.
+    var body = (document.body && document.body.textContent) || '';
+    if (body.indexOf('dsh web authentication required') !== -1) {
+      report('handoff-failed', location.href);
+    }
   });
 })();
 "#;
 
 /// Diagnostics relayed from the page. Always printed: a page that fails to run
 /// is the one failure the shell cannot otherwise report. See [`DIAG_SCRIPT`].
+///
+/// `handoff-failed` is the one stage that acts: the webview has landed on dsh's
+/// auth page, which means the session it carried was not accepted. The token
+/// comes from the server log, so re-reading it is cheap — one retry, and then
+/// the shell page, where the failure can be shown with a way forward.
 #[tauri::command]
-fn page_diag(stage: String, message: String) {
+fn page_diag(
+    window: WebviewWindow,
+    app: AppHandle,
+    shell: State<'_, SharedShell>,
+    stage: String,
+    message: String,
+) {
     eprintln!("[dsh-shell] page {stage}: {message}");
+    if stage != "handoff-failed" {
+        return;
+    }
+
+    let retried = {
+        let mut guard = match shell.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        guard.handoff_retries += 1;
+        guard.handoff_retries > 1
+    };
+
+    if retried {
+        // Retrying did not help. Come back to the shell page with the reason,
+        // rather than looping or leaving dsh's plain-text error on screen.
+        if let Ok(mut guard) = shell.lock() {
+            guard.state.phase = "failed".into();
+            guard.state.error = Some(format!(
+                "dsh 界面没有接受这个会话，重试一次后仍然失败。\n最后到达的地址：{message}\n\n                 可尝试：重启应用，或先用 dsh 手动启动一个实例再打开。"
+            ));
+        }
+        let _ = app.emit(EVENT_ERROR, snapshot(&shell));
+        if let Some(home) = shell.lock().ok().and_then(|guard| guard.shell_url.clone()) {
+            if let Ok(parsed) = home.parse::<tauri::Url>() {
+                let _ = window.navigate(parsed);
+            }
+        }
+        return;
+    }
+
+    let port = shell.lock().ok().and_then(|guard| guard.state.port);
+    let resolved = port.and_then(server::resolve_ui_url);
+    match resolved.and_then(|url| url.parse::<tauri::Url>().ok()) {
+        Some(parsed) => {
+            let shown = parsed.to_string();
+            if let Ok(mut guard) = shell.lock() {
+                guard.state.url = Some(shown.clone());
+            }
+            eprintln!("[dsh-shell] hand-off retry -> {shown}");
+            let _ = window.navigate(parsed);
+        }
+        None => {
+            if let Ok(mut guard) = shell.lock() {
+                guard.state.phase = "failed".into();
+                guard.state.error = Some(format!(
+                    "dsh 界面没有接受这个会话，且无法重新解析出可用地址。\n最后到达的地址：{message}"
+                ));
+            }
+            let _ = app.emit(EVENT_ERROR, snapshot(&shell));
+            if let Some(home) = shell.lock().ok().and_then(|guard| guard.shell_url.clone()) {
+                if let Ok(parsed) = home.parse::<tauri::Url>() {
+                    let _ = window.navigate(parsed);
+                }
+            }
+        }
+    }
 }
 
 /// Hand a URL to the desktop's default handler.
@@ -467,6 +575,10 @@ pub fn run() {
                 },
                 store,
                 dismiss_path,
+                // Read off the window rather than assembled from the platform's
+                // scheme, so it stays correct wherever Tauri serves app assets.
+                shell_url: window.url().ok().map(|url| url.to_string()),
+                handoff_retries: 0,
             }));
             app.manage(shell.clone());
 

@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-xswt-tauriapp"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "dsh-xswt-tauriapp-core",
  "serde",
@@ -689,7 +689,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-xswt-tauriapp-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "regex",
  "semver",

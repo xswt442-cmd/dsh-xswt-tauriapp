@@ -106,9 +106,44 @@ pub fn node_candidates() -> Vec<PathBuf> {
     out
 }
 
-/// The first existing `node` candidate.
+/// The node prefix that owns an installed dsh launcher.
+///
+/// A launcher always sits at
+/// `<prefix>/lib/node_modules/@deepseek-ai/dsh/lib/bin.js`, so walking up to
+/// the `lib/node_modules` boundary names the prefix that dsh is installed
+/// under — and therefore the `node` and `npm` that belong to it. Pure path
+/// arithmetic, so it is testable without an install.
+pub fn node_prefix_of(launcher: &Path) -> Option<PathBuf> {
+    let mut dir = launcher.parent()?;
+    loop {
+        let parent = dir.parent()?;
+        let is_node_modules = dir.file_name().is_some_and(|name| name == "node_modules");
+        let under_lib = parent.file_name().is_some_and(|name| name == "lib");
+        if is_node_modules && under_lib {
+            return parent.parent().map(Path::to_path_buf);
+        }
+        dir = parent;
+    }
+}
+
+/// The `node` that owns the dsh this process is going to run.
+///
+/// Preferred over `PATH`, and not merely for tidiness: a desktop launch inherits
+/// a minimal `PATH` where the first `node` is often an older system one, and dsh
+/// requires a much newer one. Taking that node produces a server that never
+/// comes up, or an `npm install -g` into a prefix nobody uses.
+pub fn node_for_dsh() -> Option<PathBuf> {
+    let launcher = fs::canonicalize(resolve_dsh_bin()?).ok()?;
+    let bin_dir = node_prefix_of(&launcher)?.join("bin");
+    NODE_EXE_NAMES
+        .iter()
+        .map(|name| bin_dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// The first existing `node` candidate: the one that owns dsh, else `PATH`.
 pub fn resolve_node() -> Option<PathBuf> {
-    node_candidates().into_iter().find(|p| p.is_file())
+    node_for_dsh().or_else(|| node_candidates().into_iter().find(|p| p.is_file()))
 }
 
 /// Candidate `dsh` launcher scripts (`lib/bin.js`), most specific first.
@@ -381,6 +416,31 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
     }
 
     command.spawn()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::node_prefix_of;
+    use std::path::Path;
+
+    #[test]
+    fn the_node_prefix_is_read_off_the_launcher() {
+        assert_eq!(
+            node_prefix_of(Path::new(
+                "/opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+            )),
+            Some(Path::new("/opt/node").to_path_buf())
+        );
+        assert_eq!(
+            node_prefix_of(Path::new(
+                "/home/u/.nvm/versions/node/v24.21.0/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+            )),
+            Some(Path::new("/home/u/.nvm/versions/node/v24.21.0").to_path_buf())
+        );
+        // A layout without the `lib/node_modules` boundary yields nothing
+        // rather than a wrong prefix.
+        assert_eq!(node_prefix_of(Path::new("/usr/local/bin/dsh")), None);
+    }
 }
 
 /// Wait until a freshly spawned server serves its UI, or give up.

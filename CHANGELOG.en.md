@@ -3,6 +3,13 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.2 - 2026-09-16
+
+### Fixed
+
+- Launched from a desktop menu or file manager, `node` and `npm` are now derived from dsh's own install location rather than the first ones on `PATH`. The first one there is usually an older system node (v18 on this machine), which cannot start a dsh server at all, and its `npm install -g` targets `/usr/local` — not writable by an ordinary user — so "update and restart" neither updated nor explained itself.
+- Landing on dsh's authentication page no longer leaves a blank window: the address is resolved again and retried once, and a second failure returns to the shell page with the reason and a concrete next step.
+
 ## 0.0.1 - 2026-09-15
 
 ### Added
