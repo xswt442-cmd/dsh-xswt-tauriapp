@@ -7,7 +7,7 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build --bundles deb,rpm,appimage",
+    "build": "tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "cargo test --manifest-path crates/dsh-core/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml --lib",
     "test:core": "cargo test --manifest-path crates/dsh-core/Cargo.toml",
