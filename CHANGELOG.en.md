@@ -3,6 +3,12 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.3 - 2026-09-16
+
+### Fixed
+
+- A failed hand-off no longer leaves a blank window. dsh's session cookie carries `SameSite=Strict`, and the shell page to dsh is a cross-site navigation, so the request after the first 303 went out without that cookie and the window stopped on dsh's 401 text. The injected script now recognises that page and navigates to a sentinel path; the shell intercepts it, resolves the address again and retries — by then the browser is already on the dsh origin, the navigation is same-site, and the cookie is sent.
+
 ## 0.0.2 - 2026-09-16
 
 ### Fixed

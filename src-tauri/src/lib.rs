@@ -402,83 +402,77 @@ const DIAG_SCRIPT: &str = r#"
     // good; without this the window just sits on that text.
     var body = (document.body && document.body.textContent) || '';
     if (body.indexOf('dsh web authentication required') !== -1) {
-      report('handoff-failed', location.href);
+      // A remote origin has no IPC back to the shell, so this page signals by
+      // navigating to a sentinel path on its own origin; the shell's navigation
+      // hook catches that before any request leaves. The raw error is replaced
+      // first, so it is never what the user is left looking at.
+      try { document.body.textContent = '正在恢复会话…'; } catch (error) {}
+      location.replace(location.origin + '/__dsh_shell_handoff_failed__');
     }
   });
 })();
 "#;
 
+/// Where a page reports a hand-off it could not complete.
+///
+/// The dsh UI is a remote origin with no IPC back to the shell — deliberately,
+/// so the wrapped app never gains the shell's command surface. A page can still
+/// navigate, so this path is how it says "I landed on dsh's auth page"; the
+/// navigation hook below catches it before any request goes out.
+const HANDOFF_FAILED_PATH: &str = "/__dsh_shell_handoff_failed__";
+
 /// Diagnostics relayed from the page. Always printed: a page that fails to run
 /// is the one failure the shell cannot otherwise report. See [`DIAG_SCRIPT`].
-///
-/// `handoff-failed` is the one stage that acts: the webview has landed on dsh's
-/// auth page, which means the session it carried was not accepted. The token
-/// comes from the server log, so re-reading it is cheap — one retry, and then
-/// the shell page, where the failure can be shown with a way forward.
 #[tauri::command]
-fn page_diag(
-    window: WebviewWindow,
-    app: AppHandle,
-    shell: State<'_, SharedShell>,
-    stage: String,
-    message: String,
-) {
+fn page_diag(stage: String, message: String) {
     eprintln!("[dsh-shell] page {stage}: {message}");
-    if stage != "handoff-failed" {
-        return;
-    }
+}
 
-    let retried = {
-        let mut guard = match shell.lock() {
-            Ok(guard) => guard,
-            Err(_) => return,
-        };
-        guard.handoff_retries += 1;
-        guard.handoff_retries > 1
+/// Recover from a page that reported a failed hand-off.
+///
+/// One retry with a freshly resolved address — the token lives in the server
+/// log, so re-reading it costs nothing — and then the shell page, where the
+/// failure and a next step can actually be shown.
+fn recover_handoff(app: &AppHandle, shell: &SharedShell) {
+    let retry = match shell.lock() {
+        Ok(mut guard) => {
+            guard.handoff_retries += 1;
+            guard.handoff_retries == 1
+        }
+        Err(_) => false,
     };
 
-    if retried {
-        // Retrying did not help. Come back to the shell page with the reason,
-        // rather than looping or leaving dsh's plain-text error on screen.
-        if let Ok(mut guard) = shell.lock() {
-            guard.state.phase = "failed".into();
-            guard.state.error = Some(format!(
-                "dsh 界面没有接受这个会话，重试一次后仍然失败。\n最后到达的地址：{message}\n\n                 可尝试：重启应用，或先用 dsh 手动启动一个实例再打开。"
-            ));
-        }
-        let _ = app.emit(EVENT_ERROR, snapshot(&shell));
-        if let Some(home) = shell.lock().ok().and_then(|guard| guard.shell_url.clone()) {
-            if let Ok(parsed) = home.parse::<tauri::Url>() {
+    if retry {
+        let resolved = shell
+            .lock()
+            .ok()
+            .and_then(|guard| guard.state.port)
+            .and_then(server::resolve_ui_url);
+        if let Some(parsed) = resolved.and_then(|url| url.parse::<tauri::Url>().ok()) {
+            shell_log!("[dsh-shell] hand-off retry -> {parsed}");
+            if let Ok(mut guard) = shell.lock() {
+                guard.state.url = Some(parsed.to_string());
+            }
+            if let Some(window) = app.get_webview_window("main") {
                 let _ = window.navigate(parsed);
             }
+            return;
         }
-        return;
     }
 
-    let port = shell.lock().ok().and_then(|guard| guard.state.port);
-    let resolved = port.and_then(server::resolve_ui_url);
-    match resolved.and_then(|url| url.parse::<tauri::Url>().ok()) {
-        Some(parsed) => {
-            let shown = parsed.to_string();
-            if let Ok(mut guard) = shell.lock() {
-                guard.state.url = Some(shown.clone());
-            }
-            eprintln!("[dsh-shell] hand-off retry -> {shown}");
+    if let Ok(mut guard) = shell.lock() {
+        guard.state.phase = "failed".into();
+        guard.state.error = Some(
+            "dsh 界面没有接受这个会话，重试后仍未成功。\n\n\
+             可尝试：重启应用；或先在终端运行 dsh web，再打开本应用。"
+                .into(),
+        );
+    }
+    let _ = app.emit(EVENT_ERROR, snapshot(shell));
+    let home = shell.lock().ok().and_then(|guard| guard.shell_url.clone());
+    if let (Some(window), Some(home)) = (app.get_webview_window("main"), home) {
+        if let Ok(parsed) = home.parse::<tauri::Url>() {
             let _ = window.navigate(parsed);
-        }
-        None => {
-            if let Ok(mut guard) = shell.lock() {
-                guard.state.phase = "failed".into();
-                guard.state.error = Some(format!(
-                    "dsh 界面没有接受这个会话，且无法重新解析出可用地址。\n最后到达的地址：{message}"
-                ));
-            }
-            let _ = app.emit(EVENT_ERROR, snapshot(&shell));
-            if let Some(home) = shell.lock().ok().and_then(|guard| guard.shell_url.clone()) {
-                if let Ok(parsed) = home.parse::<tauri::Url>() {
-                    let _ = window.navigate(parsed);
-                }
-            }
         }
     }
 }
@@ -508,9 +502,44 @@ fn open_external(url: &str) {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let dismiss_path = app
+                .path()
+                .app_config_dir()
+                .ok()
+                .map(|dir| dir.join("dismissed-updates.json"));
+            let store = dismiss_path
+                .as_ref()
+                .map(updates::DismissStore::load)
+                .unwrap_or_default();
+            shell_log!(
+                "[dsh-shell] dismiss store {} -> {:?}",
+                dismiss_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "<无>".into()),
+                store.dismissed,
+            );
+
+            // The shell exists before the window because the navigation hook
+            // below has to capture it.
+            let shell: SharedShell = Arc::new(Mutex::new(Shell {
+                state: ShellState {
+                    phase: "starting".into(),
+                    message: "正在启动…".into(),
+                    log_dir: Some(server::log_dir().display().to_string()),
+                    ..Default::default()
+                },
+                store,
+                dismiss_path,
+                shell_url: None,
+                handoff_retries: 0,
+            }));
+
             // The window is built here rather than declared in tauri.conf.json
             // so the navigation hooks below can be attached; there is no way to
             // add them to a config-created window.
+            let nav_app = app.handle().clone();
+            let nav_shell = shell.clone();
             let window = tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -524,9 +553,16 @@ pub fn run() {
             .visible(true)
             .initialization_script(DIAG_SCRIPT)
             .background_color(tauri::window::Color(0x14, 0x14, 0x14, 0xff))
-            // A link that would replace the app in the same webview opens in
-            // the real browser instead.
-            .on_navigation(|url| {
+            .on_navigation(move |url| {
+                // The sentinel a wrapped page uses to report a hand-off it could
+                // not complete. Caught here, so the request never leaves.
+                if url.path() == HANDOFF_FAILED_PATH {
+                    shell_log!("[dsh-shell] the page reported a failed hand-off");
+                    recover_handoff(&nav_app, &nav_shell);
+                    return false;
+                }
+                // A link that would replace the app in the same webview opens
+                // in the real browser instead.
                 let internal = is_internal(url);
                 shell_log!(
                     "[dsh-shell] navigate {} -> {}",
@@ -549,42 +585,17 @@ pub fn run() {
             })
             .build()?;
 
-            let dismiss_path = app
-                .path()
-                .app_config_dir()
-                .ok()
-                .map(|dir| dir.join("dismissed-updates.json"));
-            let store = dismiss_path
-                .as_ref()
-                .map(updates::DismissStore::load)
-                .unwrap_or_default();
-            shell_log!(
-                "[dsh-shell] dismiss store {} -> {:?}",
-                dismiss_path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "<无>".into()),
-                store.dismissed,
-            );
-            let shell: SharedShell = Arc::new(Mutex::new(Shell {
-                state: ShellState {
-                    phase: "starting".into(),
-                    message: "正在启动…".into(),
-                    log_dir: Some(server::log_dir().display().to_string()),
-                    ..Default::default()
-                },
-                store,
-                dismiss_path,
-                // Read off the window rather than assembled from the platform's
-                // scheme, so it stays correct wherever Tauri serves app assets.
-                shell_url: window.url().ok().map(|url| url.to_string()),
-                handoff_retries: 0,
-            }));
+            // Read off the window rather than assembled from the platform's
+            // scheme, so it stays correct wherever Tauri serves app assets.
+            let shell_url = window.url().ok().map(|url| url.to_string());
+            if let Ok(mut guard) = shell.lock() {
+                guard.shell_url = shell_url;
+            }
+
             app.manage(shell.clone());
 
             let handle = app.handle().clone();
             std::thread::spawn(move || bootstrap(handle, shell));
-            let _ = window;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -626,6 +637,20 @@ mod tests {
         assert!(is_internal(&url("http://127.0.0.1:3080/?token=abc")));
         assert!(is_internal(&url("http://localhost:3129/")));
         assert!(is_internal(&url("http://127.0.0.1:3082/xswt-bg/sky.jpg")));
+    }
+
+    #[test]
+    fn the_handoff_sentinel_is_recognised() {
+        use super::{is_internal, HANDOFF_FAILED_PATH};
+
+        let sentinel: tauri::Url = "http://127.0.0.1:3080/__dsh_shell_handoff_failed__"
+            .parse()
+            .unwrap();
+        assert_eq!(sentinel.path(), HANDOFF_FAILED_PATH);
+        // The sentinel is a loopback URL, so the link policy would otherwise
+        // wave it through; the navigation hook checks it first, which is what
+        // keeps the request from ever reaching the server.
+        assert!(is_internal(&sentinel));
     }
 
     #[test]
