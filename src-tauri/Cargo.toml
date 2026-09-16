@@ -1,6 +1,6 @@
 [package]
 name = "dsh-xswt-tauriapp"
-version = "0.0.4"
+version = "0.0.5"
 description = "A lightweight Tauri shell for DeepSeek Harness — finds or starts a local `dsh web` server, embeds it, and offers dsh updates on launch."
 edition = "2021"
 license = "MIT"
