@@ -27,7 +27,12 @@ dsh owns its own page. It does not modify, patch or vendor dsh.
   navigating to dsh is what breaks it.
 - `set_cookie` is asynchronous and `cookies_for_url` is a blocking getter that
   deadlocks on Windows from the main thread. Cookie work belongs on a worker
-  thread; window building belongs on the main thread.
+  thread.
+- A command that builds a window must be `async`. A synchronous one runs inside
+  the webview's own IPC callback, and building a second webview from there
+  deadlocks on Windows (wry#583): the window is created and never handed back, so
+  the guest stays hidden behind the splash and dsh is never reached. The window
+  is still *built* on the main thread, which is where Tauri dispatches it.
 - Non-GUI logic belongs in `crates/dsh-core`, which must keep building and
   testing without webkit2gtk. It returns a prepared `Session` (clean URL + cookie),
   never a token URL — the launch token must not reach a page.
@@ -38,6 +43,11 @@ dsh owns its own page. It does not modify, patch or vendor dsh.
   a visible menu bar on Windows/Linux. Those platforms use a tray plus global
   shortcuts held **only while one of our windows has focus**. Never hold them
   permanently. If the desktop refuses them, the app must still start.
+- A refused grab is normal, not an error: another application may already own the
+  key, and bare `F12` commonly does. A failed registration is therefore logged and
+  skipped. The release path has to tolerate it the same way — release each binding
+  on its own, because `GlobalHotKeyManager::unregister_all` stops at the first key
+  it cannot release and would leave every key after it held for good.
 - `global-hotkey`'s manager is **not `Send`/`Sync` on Windows** (a bare `HWND`),
   so it can never be Tauri managed state — a `Mutex` would not help either, since
   `Mutex<T>: Sync` needs `T: Send`. Only plain data goes into managed state; the
@@ -70,6 +80,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 node scripts/check-docs.mjs
 ```
 
+`npm run build` bundles whatever `tauri.conf.json` declares (`targets: "all"`)
+rather than naming one platform's list, so it is valid everywhere. The first
+Windows run downloads the NSIS/WiX toolchain from github.com into
+`%LOCALAPPDATA%\tauri`; a host that cannot reach github.com stalls at
+`Verifying wix package` until that cache is seeded.
+
 The harness itself is only compiled on Linux by `cargo check` in this list, so a
 platform-specific mismatch would reach a tag — that is how `global-hotkey`'s
 non-`Send` Windows manager got as far as bundling. `compat.yml` therefore checks
@@ -85,13 +101,32 @@ cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
 code — `ring`, through `ureq` — may still refuse to cross-compile; a scratch crate
 depending only on the suspect crate is enough to type-check a platform type.)
 
+Compiling elsewhere catches types, not behaviour: the 0.0.5 hand-off deadlock
+type-checked and tested clean on all three platforms and still left the app
+unusable on Windows. No CI job runs the GUI, so the runtime half of the harness is
+verified by hand, on the platform it ships to.
+
 `cargo run --example launch --manifest-path crates/dsh-core/Cargo.toml` boots a
 real server through the shell's own code path and prints its prepared session
-(`url=` and `cookie=`).
+(`url=` and `cookie=`). That stdout is a **live session cookie**: redact the value
+before it reaches a log, a commit or a transcript. Its name is minted per
+handshake (`dsh-auth-<random>`), so nothing may match on a fixed name — the
+harness parses whatever `Set-Cookie` the server sends.
 
 The hand-off's central claim — that a host-initiated first navigation carries the
-`SameSite=Strict` cookie — is measured on Linux/WebKitGTK and unmeasured on
-Windows and macOS. Treat it as unverified there.
+`SameSite=Strict` cookie — is measured on Linux/WebKitGTK and on Windows/WebView2,
+and unmeasured on macOS. Treat it as unverified there only.
+
+On Windows, run the release build with `DSH_SHELL_DEBUG=1` and read the hand-off
+in order: `the session cookie is in the jar` (a write that was read back, so the
+guest navigated with the cookie already in a shared store), `guest window
+created`, `guest navigate … -> allow`, `guest loading …`, `the guest is up` — then
+confirm the `dsh` window is visible and drawing dsh rather than dsh's 401 text.
+Two stalls are not hand-off failures: the update question is answered before the
+hand-off starts, and pointing `DSH_TAURI_REGISTRY` at an unreachable URL settles
+it without writing to the do-not-remind store. A `dsh` window left hidden behind
+the splash, by contrast, means the hand-off never completed and says nothing
+about the cookie.
 
 Whether a synthesised X11 key reaches a root-window grab could **not** be measured
 under WSLg: `XTEST` events never arrived, with `global-hotkey` in isolation, which
