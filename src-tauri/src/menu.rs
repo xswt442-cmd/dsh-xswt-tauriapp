@@ -21,6 +21,7 @@
 //! shortcut must never keep dsh from starting, so [`Shortcuts::install`] treats
 //! "no hotkeys here" as a normal outcome.
 
+use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -270,21 +271,44 @@ pub fn install(app: &AppHandle, shell: &SharedShell) -> tauri::Result<()> {
 
 // ── focus-gated shortcuts (Windows / Linux) ────────────────────────────────
 
-/// The global-shortcut manager, when this desktop is willing to give us one.
+/// The shortcut bindings, as Tauri managed state.
 ///
-/// `manager: None` is a normal outcome, not an error: a Wayland session or a
-/// headless environment refuses global hotkeys, and the harness carries on
-/// without them. The tray menu still offers every action.
+/// Deliberately holds **no** manager. `global-hotkey`'s Windows manager is a bare
+/// `HWND`, which is neither `Send` nor `Sync`, so it cannot go into managed state
+/// at all — and wrapping it in a `Mutex` would not help, since `Mutex<T>: Sync`
+/// needs `T: Send`. Only the plain data lives here; the manager lives in
+/// [`MANAGER`], on the thread that created it, which is where it has to be used
+/// anyway.
 pub struct Shortcuts {
-    manager: Option<GlobalHotKeyManager>,
     bindings: Vec<(Shortcut, Action)>,
     /// Whether the bindings are currently registered, so a repeated focus event
     /// does not try to register them twice.
     held: AtomicBool,
 }
 
+thread_local! {
+    /// The hotkey manager, reachable only from the thread that made it.
+    ///
+    /// A `thread_local` rather than managed state or a `static`: it needs no
+    /// `Send`/`Sync` bound, and both platform implementations require the
+    /// creating thread anyway — the Windows one needs that thread's message loop
+    /// to receive `WM_HOTKEY`, and macOS wants the main thread for Carbon.
+    ///
+    /// The *event* handler never touches this: on Linux the X11 backend reports
+    /// presses from its own thread, which is exactly why the bindings are kept
+    /// separate from the manager.
+    static MANAGER: RefCell<Option<GlobalHotKeyManager>> = const { RefCell::new(None) };
+}
+
 impl Shortcuts {
     /// Acquire a hotkey manager, degrading to "no shortcuts" if refused.
+    ///
+    /// `None` is a normal outcome, not an error: a Wayland session or a headless
+    /// environment refuses global hotkeys, and the harness carries on without
+    /// them. The tray menu still offers every action.
+    ///
+    /// Must be called on the main thread, because that is the thread the manager
+    /// will be used from.
     pub fn install() -> Self {
         let manager = match GlobalHotKeyManager::new() {
             Ok(manager) => Some(manager),
@@ -293,8 +317,8 @@ impl Shortcuts {
                 None
             }
         };
+        MANAGER.with(|slot| *slot.borrow_mut() = manager);
         Self {
-            manager,
             bindings: bindings(),
             held: AtomicBool::new(false),
         }
@@ -303,27 +327,38 @@ impl Shortcuts {
     /// Register the bindings when one of our windows takes focus, and release
     /// them when it loses focus.
     pub fn hold(&self, focused: bool) {
-        let Some(manager) = self.manager.as_ref() else {
-            return;
-        };
         // Focus events can repeat; only a change is worth acting on.
         if self.held.swap(focused, Ordering::SeqCst) == focused {
             return;
         }
-        if focused {
-            for (shortcut, _) in &self.bindings {
-                // A desktop environment may already own one of these keys. That
-                // costs a gesture, not the session, so it is logged and skipped.
-                if let Err(error) = manager.register(*shortcut) {
-                    shell_log!("[dsh-harness] could not bind {shortcut:?}: {error}");
+        MANAGER.with(|slot| {
+            let borrowed = slot.borrow();
+            let Some(manager) = borrowed.as_ref() else {
+                shell_log!("[dsh-harness] no hotkey manager on this desktop; shortcuts stay off");
+                return;
+            };
+            if focused {
+                for (shortcut, _) in &self.bindings {
+                    // A desktop environment may already own one of these keys.
+                    // That costs a gesture, not the session, so it is logged and
+                    // skipped rather than raised.
+                    if let Err(error) = manager.register(*shortcut) {
+                        shell_log!("[dsh-harness] could not bind {shortcut:?}: {error}");
+                    }
+                }
+                shell_log!(
+                    "[dsh-harness] shortcuts held ({} bindings)",
+                    self.bindings.len()
+                );
+            } else {
+                let hotkeys: Vec<Shortcut> = self.bindings.iter().map(|(key, _)| *key).collect();
+                if let Err(error) = manager.unregister_all(&hotkeys) {
+                    shell_log!("[dsh-harness] could not release the shortcuts: {error}");
+                } else {
+                    shell_log!("[dsh-harness] shortcuts released");
                 }
             }
-        } else {
-            let hotkeys: Vec<Shortcut> = self.bindings.iter().map(|(key, _)| *key).collect();
-            if let Err(error) = manager.unregister_all(&hotkeys) {
-                shell_log!("[dsh-harness] could not release the shortcuts: {error}");
-            }
-        }
+        });
     }
 
     /// The action a fired shortcut id names.
@@ -370,6 +405,11 @@ pub fn watch_hotkeys(app: &AppHandle) {
             return;
         };
         if let Some(action) = shortcuts.action_of(event.id) {
+            // The only trace a shortcut leaves. A grab can be registered and
+            // still never fire — in a Wayland-native window, for instance, whose
+            // keys never pass through the X server — and without this line that
+            // failure is indistinguishable from nobody pressing anything.
+            shell_log!("[dsh-harness] shortcut fired: {action:?}");
             run(&handler_app, shell.inner(), action);
         }
     }));
@@ -401,7 +441,6 @@ mod tests {
         let bound = bindings();
         assert_eq!(bound.len(), ACCELERATORS.len());
         let shortcuts = super::Shortcuts {
-            manager: None,
             bindings: bound,
             held: std::sync::atomic::AtomicBool::new(false),
         };

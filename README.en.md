@@ -55,6 +55,7 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | `DSH_TAURI_REGISTRY` | Overrides the version endpoint; defaults to the npm registry |
 | `DSH_SHELL_DEBUG` | When non-empty, logs the hand-off, navigation and update checks |
 | `DSH_SHELL_DEVTOOLS` | When non-empty, offers DevTools in the menu (debug builds already do) |
+| `DSH_SHELL_WAYLAND` | On Linux, do not switch to the X11 backend (see "Menus, tray and shortcuts") |
 
 ## How it works
 
@@ -89,6 +90,8 @@ dsh's session cookie is `SameSite=Strict`. A navigation started by a page at ano
 
 Tauri can only bind a keyboard shortcut through a menu accelerator, and on Windows and Linux a menu attached to a window *is* a visible menu bar. So on those platforms the shortcuts are global shortcuts, registered **only while one of the shell's windows has focus** and released on blur — `Ctrl+R` is not taken away from the rest of the machine. If the desktop refuses to hand out global shortcuts, the shell still starts; it just loses the gestures.
 
+On Linux there is one further condition: `global-hotkey` grabs keys through X11, and **a Wayland-native window's keystrokes never pass through the X server** — the shortcuts register successfully and then never fire. That is Wayland's design, not a defect. So the shell switches to the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop): the cost is some rendering polish, and what it buys back is reload, zoom and the inspector. `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
+
 Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which would conflict with the no-injection rule.
 
 ### Update checks
@@ -110,7 +113,7 @@ The launch prompt only offers a candidate from a channel at least as stable as t
 | Linux (deb / rpm / AppImage) | Supported; produced by CI. The session hand-off and first navigation are exercised |
 | Windows (NSIS installer) | Build wired up; the core logic is verified on `windows-latest` by CI, the GUI has not been exercised |
 | macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
-| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
+| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has **no status bar**, so a tray icon has nowhere to appear (the icon itself is created); shortcuts work, provided the X11 backend is used |
 
 That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK. Windows and macOS rely on their own webviews treating an initiator-less navigation as same-site, which has not been measured.
 

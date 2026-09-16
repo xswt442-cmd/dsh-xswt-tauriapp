@@ -113,8 +113,38 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
     }))
 }
 
+/// Prefer the X11 backend on Linux when an X display exists.
+///
+/// Not cosmetic. `global-hotkey` grabs keys through X11, and a Wayland-native
+/// window's keyboard input never passes through the X server — the shortcuts
+/// would register successfully and then never fire. XWayland is present on every
+/// Wayland desktop, so taking the X11 path costs some rendering polish and buys
+/// back reload, zoom and the inspector.
+///
+/// An explicit `GDK_BACKEND` always wins, and `DSH_SHELL_WAYLAND=1` opts out.
+/// With no `DISPLAY` at all there is nothing to fall back to, so nothing changes.
+#[cfg(target_os = "linux")]
+fn prefer_x11() {
+    if std::env::var_os("GDK_BACKEND").is_some() || std::env::var_os("DSH_SHELL_WAYLAND").is_some()
+    {
+        return;
+    }
+    if std::env::var_os("DISPLAY").is_none() {
+        return;
+    }
+    std::env::set_var("GDK_BACKEND", "x11");
+    shell_log!("[dsh-harness] using the X11 backend, so the keyboard shortcuts can be grabbed");
+}
+
+/// Every other platform renders one way, so there is nothing to choose.
+#[cfg(not(target_os = "linux"))]
+fn prefer_x11() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything initialises GTK.
+    prefer_x11();
+
     tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();

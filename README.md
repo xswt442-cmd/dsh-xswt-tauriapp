@@ -55,6 +55,7 @@ pnpm tauri build --bundles deb,rpm,appimage
 | `DSH_TAURI_REGISTRY` | 覆盖版本查询地址，默认 npm registry |
 | `DSH_SHELL_DEBUG` | 非空时输出交接、导航与更新检查日志 |
 | `DSH_SHELL_DEVTOOLS` | 非空时在菜单中提供开发者工具（debug 构建默认提供） |
+| `DSH_SHELL_WAYLAND` | 在 Linux 上不要切到 X11 后端（见「菜单、托盘与快捷键」） |
 
 ## 工作原理
 
@@ -89,6 +90,8 @@ dsh 的会话 cookie 带 `SameSite=Strict`。由页面发起的跨站导航不�
 
 Tauri 的快捷键只能挂在菜单 accelerator 上，而 Windows / Linux 上挂在窗口的菜单就是可见菜单栏。因此这两个平台的快捷键以全局快捷键实现，并且**只在自身窗口获得焦点期间注册**，失焦即注销，不会长期占用整台机器上的 `Ctrl+R`。桌面环境若拒绝发放全局快捷键，外壳照常启动，只是失去快捷键。
 
+Linux 上还有一个前提：`global-hotkey` 通过 X11 抓键，而 **Wayland 原生窗口的按键根本不经过 X 服务器** —— 快捷键会注册成功但永远不触发（这是 Wayland 的设计，不是缺陷）。因此外壳在有 `DISPLAY` 时默认切到 X11 后端（XWayland 在所有 Wayland 桌面上都在），代价是渲染少一点原生感，换来重新载入、缩放与开发者工具可用。设置 `DSH_SHELL_WAYLAND=1` 可退出该行为，显式设置 `GDK_BACKEND` 时以外壳不干预为准。
+
 缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上是靠往页面注入 polyfill 实现的，与「不注入」相冲突。
 
 ### 更新检查
@@ -110,7 +113,7 @@ Tauri 的快捷键只能挂在菜单 accelerator 上，而 Windows / Linux 上�
 | Linux（deb / rpm / AppImage） | 支持，由 CI 产出；会话交接与首次导航已实测 |
 | Windows（NSIS 安装包） | 构建已接入；核心逻辑经 CI 在 `windows-latest` 上验证，GUI 未实测 |
 | macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
-| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1` |
+| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg **没有状态栏**，托盘图标无处显示（图标本身创建成功）；快捷键可用，前提是走 X11 后端 |
 
 首次导航发送 `SameSite=Strict` cookie 这一行为已在 Linux / WebKitGTK 上实测确认；Windows 与 macOS 依赖各自 WebView 对「无发起者导航」的同站判定，尚未实测。
 

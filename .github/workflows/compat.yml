@@ -69,6 +69,31 @@ jobs:
       - name: release build links the GUI
         run: cargo build --release --manifest-path src-tauri/Cargo.toml
 
+  # `static` compiles the harness on Linux only, so a platform-specific mismatch
+  # — a type that is `Send + Sync` on one platform and not on another — would
+  # sail through every check and only fail while bundling a release. That is
+  # exactly what `global-hotkey`'s Windows manager did: a bare `HWND`, neither
+  # `Send` nor `Sync`, so it could not be Tauri managed state on Windows alone.
+  cross-compile:
+    name: harness compiles on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo check (harness)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+
   boot-check:
     name: dsh ${{ matrix.dsh-spec }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
