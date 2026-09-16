@@ -129,7 +129,9 @@ jobs:
 
       # This is the shell's own discovery path: port band, token read from the
       # server log, two-step handshake, then a spawned server that must outlive
-      # the process which started it.
+      # the process which started it. The handshake is walked in Rust, so what
+      # comes back is a prepared session — a clean URL plus the cookie that opens
+      # it — and not a token URL for the page to finish itself.
       - name: discovery, spawn and handshake
         shell: bash
         run: |
@@ -141,22 +143,43 @@ jobs:
           # harmlessly and lets the parent exit.
           out="$RUNNER_TEMP/launch.out"
           cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch > "$out" 2>&1
-          url="$(tail -n1 "$out")"
+          url="$(sed -n 's/^url=//p' "$out" | tail -n1)"
+          cookie="$(sed -n 's/^cookie=//p' "$out" | tail -n1)"
           echo "resolved: $url"
-          case "$url" in
-            http://127.0.0.1:*'?token='*) ;;
-            *) echo "::error::the launch token was not recovered from the server log: $url"; cat "$out"; exit 1 ;;
-          esac
+          echo "cookie:   ${cookie:+<present>}"
 
-          jar="$RUNNER_TEMP/dsh.cookies"
+          case "$url" in
+            http://127.0.0.1:*'/') ;;
+            *) echo "::error::the session URL is not a clean loopback address: $url"; cat "$out"; exit 1 ;;
+          esac
+          # The launch token must have been consumed in Rust. If it is still in
+          # the URL then the handshake was handed to the page instead, which is
+          # the thing this design exists to prevent.
+          case "$url" in
+            *'?token='*) echo "::error::the launch token leaked into the URL: $url"; exit 1 ;;
+          esac
+          [ -n "$cookie" ] || {
+            echo "::error::no session cookie: the token handshake did not complete"
+            cat "$out"
+            exit 1
+          }
+
           html="$RUNNER_TEMP/dsh-shell.html"
-          status="$(curl -sS --location --noproxy '*' -c "$jar" -b "$jar" -o "$html" -w '%{http_code}' "$url")"
+          status="$(curl -sS --noproxy '*' -H "Cookie: $cookie" -o "$html" -w '%{http_code}' "$url")"
           [ "$status" = 200 ] || {
-            echo "::error::the shell answered $status"
+            echo "::error::the shell answered $status to the session cookie"
             cat "$html" || true
             exit 1
           }
           grep -q 'DeepSeek Harness' "$html" || { echo '::error::the shell marker is missing'; exit 1; }
+
+          # The same address without the cookie must still be refused, which is
+          # what makes the cookie the thing that was actually proved.
+          bare="$(curl -sS --noproxy '*' -o /dev/null -w '%{http_code}' "$url")"
+          [ "$bare" = 401 ] || {
+            echo "::error::an unauthenticated request answered $bare instead of 401"
+            exit 1
+          }
           echo 'discovery, spawn and handshake passed'
 
       - name: a second launch reuses the running server
@@ -166,7 +189,7 @@ jobs:
           launch() {
             cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch \
               > "$RUNNER_TEMP/launch-$1.out" 2>&1
-            tail -n1 "$RUNNER_TEMP/launch-$1.out"
+            sed -n 's/^url=//p' "$RUNNER_TEMP/launch-$1.out" | tail -n1
           }
           first="$(launch first)"
           second="$(launch second)"

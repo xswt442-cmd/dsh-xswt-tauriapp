@@ -1,9 +1,12 @@
-// Splash, failure and the update dialog.
+// Splash, failure and the update dialog — the shell's own page.
 //
-// The page is a small state machine. Tauri creates the window on this page and
-// a worker thread in Rust does the slow work; the page only decides *when* to
-// hand the webview over to the dsh UI, so that an available update can be shown
-// first. The hand-off happens exactly once, through `open_dsh`.
+// The page is a small state machine. Tauri creates the bootstrap window on this
+// page and a worker thread in Rust does the slow work; the page only decides
+// *when* to hand over, so that an available update can be shown first. The
+// hand-off happens exactly once, through `open_dsh` — and what it does is build
+// a **separate** window for dsh. This page never navigates anywhere, which is
+// the point: a shell page navigating to dsh would be a cross-site navigation,
+// and dsh's `SameSite=Strict` session cookie would be withheld on it.
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -24,6 +27,43 @@ let dismissTarget = null;
 let navigated = false;
 /** The update dialog is on screen. */
 let dialogOpen = false;
+
+// ── failure reporting ──────────────────────────────────────────────────────
+
+// A packaged GUI app has no terminal, so a page that dies silently would look
+// like the shell simply stopped. These go to the harness's stderr through a
+// command, which is ordinary application code on the shell's own page — nothing
+// is ever injected into the dsh origin.
+let reports = 0;
+
+function reportFailure(stage, message) {
+  if (reports > 20) return;
+  reports += 1;
+  try {
+    const pending = invoke("page_diag", { stage, message: String(message) });
+    if (pending && typeof pending.catch === "function") pending.catch(() => {});
+  } catch (error) {
+    /* no bridge at all */
+  }
+}
+
+window.addEventListener(
+  "error",
+  (event) => {
+    const target = event.target;
+    if (target && target !== window && (target.src || target.href)) {
+      reportFailure("resource-error", `${target.tagName || "?"} ${target.src || target.href}`);
+    } else {
+      reportFailure("error", `${event.message || "?"} @ ${event.filename || "?"}:${event.lineno || 0}`);
+    }
+  },
+  true,
+);
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  reportFailure("unhandledrejection", reason && reason.message ? reason.message : reason);
+});
 
 // ── version comparison (mirrors the Rust side; used only for row badges) ────
 
@@ -218,6 +258,9 @@ function showDialog() {
 async function goToDsh() {
   if (navigated) return;
   navigated = true;
+  // The bootstrap window stays on screen until Rust has shown the dsh window,
+  // so this line is what the user reads while the guest loads.
+  el("splash-message").textContent = "正在载入 dsh 界面…";
   try {
     await invoke("open_dsh");
   } catch (error) {

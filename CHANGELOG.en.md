@@ -3,6 +3,27 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Changed
+
+- The shell is now a desktop harness for dsh: Tauri owns windows, processes, launching and reuse, the session hand-off, menus/tray/shortcuts, updates, external links and failure recovery, while the page belongs entirely to dsh.
+- Startup is split across two windows: `bootstrap` carries progress, the update dialog and failures, while the `dsh` window shows the dsh interface alone. Nothing from startup can be drawn over dsh — that is a structural guarantee, not a convention.
+- The session hand-off moved into Rust: the new `resolve_session()` walks and verifies the handshake and returns a clean address plus the session cookie, so the window receives an already-prepared session and the launch token never enters a page URL or `location.search`.
+- The first navigation is now host-initiated. dsh's `SameSite=Strict` is unchanged; the cookie being withheld on cross-site navigation is solved by the order of the hand-off instead of by relaxing dsh's security semantics.
+- Added menus, a tray and shortcuts: macOS uses a native system menu (including the Edit menu the standard text shortcuts depend on), Windows and Linux use a tray menu, and shortcuts are registered only while one of the shell's windows has focus.
+- Zoom now goes through the native `set_zoom` from Rust, and DevTools come from the `devtools` feature, hidden from the menu in release builds by default.
+
+### Removed
+
+- Removed the `initialization_script` injected into dsh's page, the 401 text sniffing, the failed-hand-off sentinel path, and the page's `Ctrl+R` listener. The shell no longer depends on any of the guest's front-end structure.
+
+### Fixed
+
+- A hand-off no longer strands the window on dsh's 401 page: the session cookie is written into the cookie store and read back before the dsh window is created, supplying the `Domain` the server omitted.
+- The `dsh` window stays hidden until its page has loaded, and a load that times out returns to the `bootstrap` page with the reason rather than leaving an empty window.
+- compat CI now asserts that the example prints a clean address with no token in it, and that the same address still answers 401 without the cookie.
+
 ## 0.0.4 - 2026-09-16
 
 ### Added

@@ -14,7 +14,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `tray-icon` is the Windows/Linux half of the menu story: a tray menu carries
+# reload/zoom/DevTools there instead of a menu bar that would eat the dsh
+# window's height. `devtools` makes the WebView inspector reachable at all; the
+# shell still gates the menu item. `image-png`/`image-ico` decode the bundled
+# icons for the tray.
+tauri = { version = "2", features = ["tray-icon", "devtools", "image-png", "image-ico"] }
+# Tauri can only bind a keyboard shortcut through a menu accelerator, and a menu
+# on Windows/Linux is a visible bar. This is the way to have shortcuts without
+# one; the shell registers them only while its own window is focused. Used
+# directly rather than through tauri-plugin-global-shortcut: the plugin builds its
+# hotkey manager in its own setup and fails application startup when the desktop
+# refuses, which a Wayland session does.
+global-hotkey = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dsh-xswt-tauriapp-core = { path = "../crates/dsh-core" }

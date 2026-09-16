@@ -3,6 +3,27 @@
 Release notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## Unreleased
+
+### 变更
+
+- 外壳重做为 dsh 的 desktop harness：Tauri 只负责窗口、进程、启动与复用、会话交接、菜单/托盘/快捷键、更新、外链与故障恢复，页面内容完全交给 dsh。
+- 启动拆成两个窗口：`bootstrap` 承载进度、更新弹窗与失败信息，`dsh` 窗口只显示 dsh 界面。启动过程中的任何界面都不可能覆盖在 dsh 上，这是结构上的保证而非约定。
+- 会话交接移到 Rust 侧：新增 `resolve_session()`，走完并校验握手后返回干净地址与会话 cookie，窗口拿到的是已经准备好的会话，启动 token 不再进入页面 URL 或 `location.search`。
+- 首次导航改为由宿主发起。dsh 的 `SameSite=Strict` 保持不变，跨站导航扣留 cookie 的问题改由交接顺序解决，而不是放宽 dsh 的安全语义。
+- 新增菜单、托盘与快捷键：macOS 用原生系统菜单（含文本框快捷键所依赖的「编辑」菜单），Windows / Linux 用托盘菜单，快捷键只在自身窗口获得焦点期间注册。
+- 缩放改为 Rust 侧调用原生 `set_zoom`；开发者工具由 `devtools` feature 提供，release 构建默认不出现在菜单中。
+
+### 移除
+
+- 移除注入 dsh 页面的 `initialization_script`、401 文本嗅探、交接失败哨兵路径，以及页面里的 `Ctrl+R` 监听。外壳不再依赖 guest 的任何前端结构。
+
+### 修复
+
+- 交接不再停在 dsh 的 401 页面：会话 cookie 在 dsh 窗口创建之前写入 cookie 存储并确认可读，同时补上服务未给出的 `Domain`。
+- `dsh` 窗口在页面加载完成之前保持隐藏；加载超时会回到 `bootstrap` 页面说明原因，而不是留下一个空窗口。
+- compat CI 现在断言示例输出的是干净地址、token 不在其中，并确认同一地址不带 cookie 时仍返回 401。
+
 ## 0.0.4 - 2026-09-16
 
 ### 新增

@@ -1,8 +1,9 @@
 # Agent guide
 
-`dsh-xswt-tauriapp` is a Tauri shell for DeepSeek Harness: it reuses or starts a
-local `dsh web` server, embeds it, and offers dsh updates on launch. It does not
-modify, patch or vendor dsh.
+`dsh-xswt-tauriapp` is a Tauri **harness** for DeepSeek Harness. Tauri owns
+dsh's periphery — windows, the server process, launching and reuse, the session
+hand-off, menus/tray/shortcuts, updates, external links, failure recovery — and
+dsh owns its own page. It does not modify, patch or vendor dsh.
 
 ## Workflow
 
@@ -13,13 +14,32 @@ modify, patch or vendor dsh.
 
 ## Engineering
 
-- Prefer root-cause fixes over workarounds.
+- **The rule that decides where code goes:** if it does not need to understand
+  dsh's DOM, the harness should do it; if it needs to read or modify dsh's DOM,
+  it should not be done. No injected scripts, no DOM reads, no CSS patches, no
+  shell UI drawn over dsh's window.
+- Two windows, and the split is load-bearing: `bootstrap` (local origin, the only
+  one with a capability) carries progress, updates and failures; `dsh` (remote
+  origin, no capability) carries the dsh interface alone.
+- Keep dsh's security semantics. Its session cookie is `SameSite=Strict`; never
+  relax it. The first navigation into dsh must be **host-initiated**, with the
+  cookie already in the store — that is what makes Strict work, and a shell page
+  navigating to dsh is what breaks it.
+- `set_cookie` is asynchronous and `cookies_for_url` is a blocking getter that
+  deadlocks on Windows from the main thread. Cookie work belongs on a worker
+  thread; window building belongs on the main thread.
 - Non-GUI logic belongs in `crates/dsh-core`, which must keep building and
-  testing without webkit2gtk.
-- dsh is reached only over its local HTTP surface.
-- Keep discovery as the Electron shell has it: ports 3080–3129, token from
+  testing without webkit2gtk. It returns a prepared `Session` (clean URL + cookie),
+  never a token URL — the launch token must not reach a page.
+- Discovery stays as dsh has it: ports 3080–3129, token from
   `$DSH_HOME/launcher/logs/server-<port>.out.log`, two-step handshake, detached
   server that is never stopped when the window closes.
+- Tauri can only bind a shortcut through a menu accelerator, and a window menu is
+  a visible menu bar on Windows/Linux. Those platforms use a tray plus global
+  shortcuts held **only while one of our windows has focus**. Never hold them
+  permanently. If the desktop refuses them, the app must still start.
+- Do not use `zoom_hotkeys_enabled`: on macOS and Linux it works by injecting a
+  polyfill into the page. Zoom goes through `set_zoom` from Rust.
 - Never offer an update from a channel less stable than the installed one, and
   keep "don't remind me" scoped to one version.
 - Keep every declared version equal — both crates, `package.json` and
@@ -38,4 +58,9 @@ node scripts/check-docs.mjs
 ```
 
 `cargo run --example launch --manifest-path crates/dsh-core/Cargo.toml` boots a
-real server through the shell's own code path and prints its URL.
+real server through the shell's own code path and prints its prepared session
+(`url=` and `cookie=`).
+
+The hand-off's central claim — that a host-initiated first navigation carries the
+`SameSite=Strict` cookie — is measured on Linux/WebKitGTK and unmeasured on
+Windows and macOS. Treat it as unverified there.

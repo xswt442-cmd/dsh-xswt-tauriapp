@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "shell-splash",
-  "description": "What the shell's own splash page needs. It subscribes to the shell:// events Rust emits, so core:event:listen must be granted; everything else it does goes through app-defined commands, which need no capability. The dsh UI this window later navigates to is a remote origin and is deliberately NOT covered by this capability, so the wrapped app never gains access to the shell's IPC surface.",
+  "description": "What the shell's own bootstrap page needs. It subscribes to the shell:// events Rust emits, so core:event:listen must be granted; everything else it does goes through app-defined commands, which need no capability. The dsh window is a remote origin under a different label and is deliberately NOT covered by this capability, so the wrapped app never gains access to the shell's IPC surface.",
   "local": true,
-  "windows": ["main"],
+  "windows": ["bootstrap"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten"

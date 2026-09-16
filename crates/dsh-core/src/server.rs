@@ -11,6 +11,10 @@
 //!   `/` with a session cookie, and only that follow-up request is served the
 //!   app. Walking it also proves the token is live, which rejects a stale one
 //!   left behind by an earlier server on the same port.
+//! * The handshake is walked **here**, in Rust, and reduced to a [`Session`]:
+//!   the clean URL plus the cookie that opens it. A shell hands the webview the
+//!   prepared session rather than a token URL, so the launch token never reaches
+//!   a page.
 //! * Starting a server must not make the shell its parent in a way that kills
 //!   it on exit. Closing the window never stops the server; that is the
 //!   instance manager's job.
@@ -285,40 +289,122 @@ pub fn http_get(port: u16, path: &str, cookie: Option<&str>) -> HttpResponse {
     }
 }
 
-/// The usable URL of a dsh web server already listening on `port`, or `None`.
-pub fn resolve_ui_url(port: u16) -> Option<String> {
+/// A dsh web session, ready to be handed to a webview.
+///
+/// The point of this type is that the token handshake has *already happened* by
+/// the time it exists. A shell writes [`Session::cookie`] into the webview's
+/// cookie jar and points it at [`Session::url`] — a clean `/`, with no token in
+/// the query string, so nothing on the page can read the launch token back out
+/// of `location.search`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    /// The UI address to load: `http://127.0.0.1:<port>/`.
+    pub url: String,
+    /// The `name=value` pair to write into the cookie jar, when the server
+    /// authenticates. `None` for a server that serves its UI unauthenticated.
+    pub cookie: Option<String>,
+    /// The whole `Set-Cookie` header the pair came from, attributes included
+    /// (`Path`, `HttpOnly`, `SameSite`, `Max-Age`). Kept so a shell can write
+    /// the cookie back with the server's own attributes rather than invented
+    /// ones, and so the attributes are visible in a diagnostic dump.
+    pub set_cookie: Option<String>,
+    /// The port the UI is served on.
+    pub port: u16,
+}
+
+impl Session {
+    /// Whether reaching this UI requires the cookie to be presented.
+    pub fn is_authenticated(&self) -> bool {
+        self.cookie.is_some()
+    }
+}
+
+/// The `name=value` pair at the head of a `Set-Cookie` value.
+///
+/// Attributes follow the first `;`; only the pair is sent back on a request.
+pub fn cookie_pair(set_cookie: &str) -> String {
+    set_cookie
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// The ready session of a dsh web server already listening on `port`, or `None`.
+///
+/// Walks the token handshake and verifies the result, so a `Some` here means the
+/// UI has been fetched successfully at least once and the cookie that did it is
+/// in hand. A server on the port that is not dsh answers with something else and
+/// is rejected rather than embedded.
+pub fn resolve_session(port: u16) -> Option<Session> {
     if !probe_port(port, CONNECT_TIMEOUT) {
         return None;
     }
+
+    // Whatever happened, the address handed out is the clean one; the token is
+    // consumed here and never returned.
+    let url = format!("http://127.0.0.1:{port}/");
+    let unauthenticated = Session {
+        url,
+        cookie: None,
+        set_cookie: None,
+        port,
+    };
+
     if let Some(token) = token_from_log(&log_dir(), port) {
-        let token_url = format!("http://127.0.0.1:{port}/?token={token}");
         let handshake = http_get(port, &format!("/?token={token}"), None);
+        // A server with auth disabled serves the UI straight from the token
+        // request; there is no cookie to carry.
         if handshake.is_ui() {
-            return Some(token_url);
+            return Some(unauthenticated);
         }
         if (300..400).contains(&handshake.status) {
-            if let Some(cookie) = handshake.set_cookie.as_deref() {
-                let pair = cookie.split(';').next().unwrap_or("");
+            if let Some(set_cookie) = handshake.set_cookie.as_deref() {
+                let pair = cookie_pair(set_cookie);
                 let path = handshake
                     .location
                     .clone()
                     .unwrap_or_else(|| "/".to_string());
-                if http_get(port, &path, Some(pair)).is_ui() {
-                    return Some(token_url);
+                // Following the redirect with the cookie is what proves the pair
+                // is live: a stale token from an earlier server on this port
+                // mints a session that does not open the app.
+                if !pair.is_empty() && http_get(port, &path, Some(&pair)).is_ui() {
+                    return Some(Session {
+                        url: unauthenticated.url,
+                        cookie: Some(pair),
+                        set_cookie: Some(set_cookie.to_string()),
+                        port,
+                    });
                 }
             }
         }
     }
+
     // A server started without auth still answers a bare GET.
     if http_get(port, "/", None).is_ui() {
-        return Some(format!("http://127.0.0.1:{port}/"));
+        return Some(unauthenticated);
     }
     None
 }
 
+/// The usable URL of a dsh web server already listening on `port`, or `None`.
+///
+/// The session's *clean* URL. Older shells navigated to a token URL so the page
+/// could complete the handshake itself; that leaks the launch token into
+/// `location.search`, so [`resolve_session`] is the interface to prefer.
+pub fn resolve_ui_url(port: u16) -> Option<String> {
+    resolve_session(port).map(|session| session.url)
+}
+
+/// The first dsh web session already listening on the band, if any.
+pub fn find_running_session() -> Option<Session> {
+    (START_PORT..=MAX_PORT).find_map(resolve_session)
+}
+
 /// The first dsh web UI already listening on the band, if any.
 pub fn find_running_url() -> Option<(u16, String)> {
-    (START_PORT..=MAX_PORT).find_map(|port| resolve_ui_url(port).map(|url| (port, url)))
+    find_running_session().map(|session| (session.port, session.url))
 }
 
 /// The first port of the band with nothing listening on it.
@@ -420,7 +506,7 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 
 #[cfg(test)]
 mod tests {
-    use super::node_prefix_of;
+    use super::{cookie_pair, node_prefix_of, Session};
     use std::path::Path;
 
     #[test]
@@ -441,6 +527,46 @@ mod tests {
         // rather than a wrong prefix.
         assert_eq!(node_prefix_of(Path::new("/usr/local/bin/dsh")), None);
     }
+
+    #[test]
+    fn only_the_pair_is_sent_back_to_the_server() {
+        // The attributes are the server's business; echoing them on a request
+        // would send `Path=/; HttpOnly; SameSite=Strict` as if it were part of
+        // the value.
+        assert_eq!(
+            cookie_pair(
+                "dsh-auth-web=v1.abc.def; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict"
+            ),
+            "dsh-auth-web=v1.abc.def"
+        );
+        // A bare pair, and the degenerate inputs, survive without panicking.
+        assert_eq!(cookie_pair("a=b"), "a=b");
+        assert_eq!(cookie_pair("a=b; Path=/"), "a=b");
+        assert_eq!(cookie_pair(""), "");
+        assert_eq!(cookie_pair("; Path=/"), "");
+        assert_eq!(cookie_pair("  spaced = value  ; Path=/"), "spaced = value");
+    }
+
+    #[test]
+    fn a_session_without_a_cookie_is_the_unauthenticated_shape() {
+        let session = Session {
+            url: "http://127.0.0.1:3080/".to_string(),
+            cookie: None,
+            set_cookie: None,
+            port: 3080,
+        };
+        assert!(!session.is_authenticated());
+
+        let authenticated = Session {
+            cookie: Some("dsh-auth-web=v1.x".to_string()),
+            set_cookie: Some("dsh-auth-web=v1.x; Path=/; SameSite=Strict".to_string()),
+            ..session
+        };
+        assert!(authenticated.is_authenticated());
+        // The address handed to a page never carries the token, whatever the
+        // authentication shape.
+        assert_eq!(authenticated.url, "http://127.0.0.1:3080/");
+    }
 }
 
 /// Wait until a freshly spawned server serves its UI, or give up.
@@ -452,11 +578,11 @@ mod tests {
 /// iterations would let "120 seconds" stretch to many minutes on a host where
 /// the server never comes up. The probe also runs before the first sleep, so an
 /// already-listening server is not delayed by one interval.
-pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<String> {
+pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<Session> {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     loop {
-        if let Some(url) = resolve_ui_url(port) {
-            return Some(url);
+        if let Some(session) = resolve_session(port) {
+            return Some(session);
         }
         match child.try_wait() {
             Ok(Some(_)) => return None,
@@ -473,39 +599,47 @@ pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<St
 /// Outcome of bringing the UI up.
 #[derive(Debug, Clone)]
 pub enum Launch {
-    /// A server was already running; its URL.
-    Reused { port: u16, url: String },
-    /// We started a server; its port and URL.
-    Started { port: u16, url: String },
+    /// A server was already running; its prepared session.
+    Reused(Session),
+    /// We started a server; its prepared session.
+    Started(Session),
 }
 
 impl Launch {
-    /// The URL the webview should load.
-    pub fn url(&self) -> &str {
+    /// The prepared session, however the server got here.
+    pub fn session(&self) -> &Session {
         match self {
-            Launch::Reused { url, .. } | Launch::Started { url, .. } => url,
+            Launch::Reused(session) | Launch::Started(session) => session,
         }
+    }
+
+    /// The clean URL the webview should load.
+    pub fn url(&self) -> &str {
+        &self.session().url
     }
 
     /// The port the UI is served on.
     pub fn port(&self) -> u16 {
-        match self {
-            Launch::Reused { port, .. } | Launch::Started { port, .. } => *port,
-        }
+        self.session().port
+    }
+
+    /// Whether an existing server was reused rather than started.
+    pub fn is_reused(&self) -> bool {
+        matches!(self, Launch::Reused(_))
     }
 }
 
 /// Reuse a running server or start a new one, blocking until the UI answers.
 pub fn launch(timeout_secs: u64) -> Result<Launch, String> {
-    if let Some((port, url)) = find_running_url() {
-        return Ok(Launch::Reused { port, url });
+    if let Some(session) = find_running_session() {
+        return Ok(Launch::Reused(session));
     }
     let port = find_free_port()
         .ok_or_else(|| format!("{START_PORT}–{MAX_PORT} 端口全部被占用，没有可用端口。"))?;
     let spec = SpawnSpec::resolve(port, log_dir())?;
     let mut child = spawn_server(&spec).map_err(|error| format!("启动 dsh 服务失败：{error}"))?;
     match wait_for_ui(port, &mut child, timeout_secs) {
-        Some(url) => Ok(Launch::Started { port, url }),
+        Some(session) => Ok(Launch::Started(session)),
         None => Err(format!(
             "dsh 服务在 {timeout_secs} 秒内未就绪（进程已退出或超时）。\n日志目录：{}",
             spec.log_dir.display()
@@ -519,9 +653,9 @@ where
     F: FnMut(&str),
 {
     progress("正在查找已运行的 dsh 服务…");
-    if let Some((port, url)) = find_running_url() {
-        progress(&format!("已复用端口 {port} 上的 dsh 服务"));
-        return Ok(Launch::Reused { port, url });
+    if let Some(session) = find_running_session() {
+        progress(&format!("已复用端口 {} 上的 dsh 服务", session.port));
+        return Ok(Launch::Reused(session));
     }
     progress("未发现运行中的服务，正在启动…");
     let port = find_free_port()
@@ -530,9 +664,9 @@ where
     let mut child = spawn_server(&spec).map_err(|error| format!("启动 dsh 服务失败：{error}"))?;
     progress(&format!("已在端口 {port} 启动 dsh 服务，等待就绪…"));
     let started = Instant::now();
-    if let Some(url) = wait_for_ui(port, &mut child, timeout_secs) {
+    if let Some(session) = wait_for_ui(port, &mut child, timeout_secs) {
         progress(&format!("服务已就绪（{} 秒）", started.elapsed().as_secs()));
-        Ok(Launch::Started { port, url })
+        Ok(Launch::Started(session))
     } else {
         Err(format!(
             "dsh 服务在 {timeout_secs} 秒内未就绪（进程已退出或超时）。\n日志目录：{}",
