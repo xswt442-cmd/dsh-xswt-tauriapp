@@ -377,29 +377,61 @@ fn is_internal(url: &tauri::Url) -> bool {
 /// which is always present, and surfaces the failure on stderr.
 const DIAG_SCRIPT: &str = r#"
 (function () {
+  // Diagnostics belong to the shell's own page. On the dsh origin there is no
+  // IPC to call, and trying anyway is worse than useless: `invoke` returns a
+  // promise that never settles there, and an uncaught rejection would re-enter
+  // the rejection handler below in a loop.
+  var isShellPage = location.protocol === 'tauri:' || location.hostname === 'tauri.localhost';
+
+  var reports = 0;
   var report = function (stage, message) {
+    if (reports > 20) return;
+    reports += 1;
     try {
-      window.__TAURI_INTERNALS__.invoke('page_diag', { stage: stage, message: String(message) });
-    } catch (error) { /* no bridge, no way to say so */ }
+      var pending = window.__TAURI_INTERNALS__.invoke('page_diag', {
+        stage: stage,
+        message: String(message),
+      });
+      if (pending && typeof pending.catch === 'function') pending.catch(function () {});
+    } catch (error) { /* no bridge at all */ }
   };
-  window.addEventListener('error', function (event) {
-    var target = event.target;
-    if (target && target !== window && (target.src || target.href)) {
-      report('resource-error', (target.tagName || '?') + ' ' + (target.src || target.href));
-    } else {
-      report('error', (event.message || '?') + ' @ ' + (event.filename || '?') + ':' + (event.lineno || 0));
+
+  if (isShellPage) {
+    window.addEventListener('error', function (event) {
+      var target = event.target;
+      if (target && target !== window && (target.src || target.href)) {
+        report('resource-error', (target.tagName || '?') + ' ' + (target.src || target.href));
+      } else {
+        report('error', (event.message || '?') + ' @ ' + (event.filename || '?') + ':' + (event.lineno || 0));
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function (event) {
+      var reason = event.reason;
+      report('unhandledrejection', reason && reason.message ? reason.message : reason);
+    });
+  }
+
+  // This window has no browser chrome, so it also has no reload — and dsh needs
+  // one: the content font size and the theme's boot values are written into the
+  // index when the host renders it, and nothing applies them afterwards. The
+  // shortcut the browser would have provided is restored here.
+  window.addEventListener('keydown', function (event) {
+    var reload = event.key === 'F5' ||
+      ((event.ctrlKey || event.metaKey) && (event.key === 'r' || event.key === 'R'));
+    if (reload) {
+      event.preventDefault();
+      location.reload();
     }
   }, true);
-  window.addEventListener('unhandledrejection', function (event) {
-    var reason = event.reason;
-    report('unhandledrejection', reason && reason.message ? reason.message : reason);
-  });
+
   document.addEventListener('DOMContentLoaded', function () {
-    report('dom-ready', 'hasTauriGlobal=' + (typeof window.__TAURI__) +
-      ' hasInternals=' + (typeof window.__TAURI_INTERNALS__));
-    // This script runs on every page load, including the dsh UI. Landing on
-    // dsh's own auth page means the hand-off carried a token that was no longer
-    // good; without this the window just sits on that text.
+    if (isShellPage) {
+      report('dom-ready', 'hasTauriGlobal=' + (typeof window.__TAURI__) +
+        ' hasInternals=' + (typeof window.__TAURI_INTERNALS__));
+    }
+    // Runs on every page, including the dsh UI. Landing on dsh's auth page
+    // means the hand-off arrived without a session; without this the window just
+    // sits on that text.
     var body = (document.body && document.body.textContent) || '';
     if (body.indexOf('dsh web authentication required') !== -1) {
       // A remote origin has no IPC back to the shell, so this page signals by

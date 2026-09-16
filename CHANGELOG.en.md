@@ -3,6 +3,16 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.4 - 2026-09-16
+
+### Added
+
+- `Ctrl+R` / `F5` to reload, because the window has no browser chrome. Some dsh settings — the content font size, and the theme's boot values — are written into the index when the host renders it, and nothing changes them after the page loads, so those settings need a reload to take effect. The shell offered no way to reload at all.
+
+### Fixed
+
+- The injected script no longer tries to call the shell's IPC from a remote page (the dsh UI). It is refused there, and a rejected promise would re-enter the same handler and loop. Diagnostics are now reported only from the shell's own page; a remote page keeps just the one signal it needs, the failed hand-off.
+
 ## 0.0.3 - 2026-09-16
 
 ### Fixed

@@ -14,6 +14,7 @@ A lightweight Tauri desktop shell for DeepSeek Harness. It reuses or starts a lo
 - **Update check on launch**: reads the published versions of `@deepseek-ai/dsh` from npm and shows them in three columns — stable, RC and alpha — with the option to install any of them and restart.
 - **Don't remind me about this version**: suppresses the launch prompt for that one version; a newer version still prompts.
 - **External links open in the browser**: links that leave the app are handed to the desktop's default handler instead of taking over the window.
+- **Reload is kept available**: the window has no browser chrome, so `Ctrl+R` / `F5` reloads. Some dsh settings — the content font size and the theme's boot values — are written when the host renders the index, so they need a reload to take effect.
 - **The server outlives the shell**: it runs in its own process group, and closing the window never stops it.
 
 ## Getting it
