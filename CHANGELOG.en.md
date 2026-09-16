@@ -23,6 +23,9 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - A hand-off no longer strands the window on dsh's 401 page: the session cookie is written into the cookie store and read back before the dsh window is created, supplying the `Domain` the server omitted.
 - The `dsh` window stays hidden until its page has loaded, and a load that times out returns to the `bootstrap` page with the reason rather than leaving an empty window.
 - compat CI now asserts that the example prints a clean address with no token in it, and that the same address still answers 401 without the cookie.
+- Windows builds no longer fail over `global-hotkey`'s manager, which is a bare `HWND` there — neither `Send` nor `Sync`, so it can never be Tauri managed state (a `Mutex` would not help either: `Mutex<T>: Sync` needs `T: Send`). The manager now lives on the thread that created it, and managed state carries only plain data.
+- Shortcuts on Linux can no longer register successfully and then never fire. `global-hotkey` grabs through X11, and a Wayland-native window's keys never reach the X server — that is Wayland's design. The shell now takes the X11 backend (XWayland) whenever `DISPLAY` exists, with `DSH_SHELL_WAYLAND=1` to opt out.
+- compat CI compiles the harness on Windows and macOS. It had only ever been compiled on Linux, so a platform-specific type difference could not surface until a release was being bundled. A fired shortcut also logs itself now, which separates "registered but never fires" from "nobody pressed anything".
 
 ## 0.0.4 - 2026-09-16
 

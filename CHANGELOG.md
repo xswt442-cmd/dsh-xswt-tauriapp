@@ -23,6 +23,9 @@ Release notes 由对应版本段生成；最新版本在前。
 - 交接不再停在 dsh 的 401 页面：会话 cookie 在 dsh 窗口创建之前写入 cookie 存储并确认可读，同时补上服务未给出的 `Domain`。
 - `dsh` 窗口在页面加载完成之前保持隐藏；加载超时会回到 `bootstrap` 页面说明原因，而不是留下一个空窗口。
 - compat CI 现在断言示例输出的是干净地址、token 不在其中，并确认同一地址不带 cookie 时仍返回 401。
+- Windows 构建不再因 `global-hotkey` 的 manager 而失败。它在 Windows 上是一个裸 `HWND`，既不是 `Send` 也不是 `Sync`，因此不能作为 Tauri managed state（套 `Mutex` 也无效，`Mutex<T>: Sync` 需要 `T: Send`）。manager 现在放在创建它的线程上（`thread_local`），managed state 只保留纯数据。
+- Linux 上快捷键不再可能「注册成功却永不触发」。`global-hotkey` 通过 X11 抓键，而 Wayland 原生窗口的按键不经过 X 服务器 —— 这是 Wayland 的设计。外壳现在在有 `DISPLAY` 时使用 X11 后端（XWayland），可用 `DSH_SHELL_WAYLAND=1` 退出。
+- compat CI 增加 Windows 与 macOS 上的 harness 编译检查。此前 harness 只在 Linux 上编译过，这类平台相关的类型差异要到打包 release 时才暴露。快捷键触发时也会记一条日志，"注册了但不触发"与"没按"从此可区分。
 
 ## 0.0.4 - 2026-09-16
 
