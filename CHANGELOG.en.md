@@ -3,6 +3,15 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.6 - 2026-09-16
+
+### Fixed
+
+- Windows no longer stops on the `bootstrap` page. `open_dsh`, which creates the `dsh` window, was a synchronous command, so it ran inside the webview's own IPC callback — and on Windows building a second webview from there deadlocks (wry#583): the window is created and never handed back, so the `dsh` window stayed hidden. It is an `async` command now, and the window is still created on the main thread. The 0.0.5 Windows installer installed and started, but its interface never reached dsh.
+- Shortcuts can no longer be held for good. A refused registration is normal — a bare `F12` is commonly taken by another application — and the release path used `unregister_all`, which stops at the first key it cannot unregister and leaves every key after it held. Each binding is now released and reported on its own, and the held count names the keys that actually registered.
+- The reason a hand-off failed now reaches the shell's log. A rejected `open_dsh` only rendered the failure page, and a packaged GUI has no terminal, so the one failure that decides whether the app is usable left no trace; it now goes to stderr through `page_diag`, like the other failures.
+- The local `npm run build` no longer hardcodes Linux's bundler targets (`deb,rpm,appimage`) and follows `tauri.conf.json`'s `targets` instead, so it is usable on Windows and macOS too.
+
 ## 0.0.5 - 2026-09-16
 
 ### Changed

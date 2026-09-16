@@ -3,6 +3,15 @@
 Release notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## 0.0.6 - 2026-09-16
+
+### 修复
+
+- Windows 上不再停在 `bootstrap` 页面。创建 `dsh` 窗口的 `open_dsh` 是同步命令，因此运行在 webview 自己的 IPC 回调里，而 Windows 上从该回调中再建一个 webview 会死锁（wry#583）：窗口已经建出来却永远不返回，`dsh` 窗口就一直保持隐藏。它现在是 `async` 命令，窗口仍由主线程创建。0.0.5 的 Windows 安装包可以安装并启动，但界面到不了 dsh。
+- 快捷键不再可能被永久占用。注册失败是正常情况 —— 裸 `F12` 常被其他程序占用 —— 而释放走的是 `unregister_all`，它遇到第一把注销失败的键就停止，排在它之后的键会一直留在被占用状态。现在逐把注销、逐把记录，日志里的持有数量也改为实际注册成功的数量。
+- 交接失败的原因现在会写进外壳日志。`open_dsh` 被拒绝时只渲染失败页，而打包后的 GUI 没有终端，这条最关键的失败因此不留痕迹；它现在和其他失败一样经 `page_diag` 上报到 stderr。
+- 本地 `npm run build` 不再写死 Linux 的打包目标（`deb,rpm,appimage`），改为跟随 `tauri.conf.json` 的 `targets`，因此在 Windows 与 macOS 上同样可用。
+
 ## 0.0.5 - 2026-09-16
 
 ### 变更

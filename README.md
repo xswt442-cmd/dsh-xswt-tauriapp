@@ -26,7 +26,7 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳 —— 更准确地说，是 dsh �
 deb 仅依赖 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`：
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.5_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.6_amd64.deb"
 ```
 
 ### 从源码构建
