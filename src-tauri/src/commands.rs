@@ -23,10 +23,14 @@ pub fn get_state(shell: State<'_, SharedShell>) -> ShellState {
 /// cookie is already in the jar by then: the worker wrote it before it announced
 /// the session, so this does nothing but build the window and hide the page.
 ///
-/// Synchronous on purpose, and therefore on the main thread, which is where a
-/// window has to be built.
+/// `async` on purpose. A synchronous command runs inside the webview's own IPC
+/// callback, and building a second webview from there deadlocks on Windows
+/// (wry#583) — the window is created and then never handed back, so the guest
+/// stays hidden behind the splash forever. An `async` command runs off the main
+/// thread, so `WebviewWindowBuilder::build` asks the main thread for the window
+/// and waits, instead of re-entering it.
 #[tauri::command]
-pub fn open_dsh(app: AppHandle, shell: State<'_, SharedShell>) -> Result<(), String> {
+pub async fn open_dsh(app: AppHandle, shell: State<'_, SharedShell>) -> Result<(), String> {
     guest::spawn(&app, shell.inner())
 }
 
