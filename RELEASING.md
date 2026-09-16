@@ -11,6 +11,9 @@ commit into `main`. Only release-ready changes belong on `main`.
    - `crates/dsh-core/Cargo.toml#version`
    - `src-tauri/tauri.conf.json#version`
    - the first section of both changelogs: `## X.Y.Z - YYYY-MM-DD`
+   - the deb example in both READMEs: `dsh-xswt-tauriapp_X.Y.Z_amd64.deb`
+   - both `Cargo.lock` files, which any cargo command rewrites to match — check
+     `git status` before committing, because nothing else notices if they lag.
 2. Run:
 
    ```sh
