@@ -3,6 +3,13 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.7 - 2026-09-17
+
+### Fixed
+
+- The app and its installers now carry the project's own icon. `src-tauri/icons/` was still the Tauri scaffold's blue rounded square — byte for byte the same in the repository, the exe and the installed copy — and Windows had a second problem: `bundle.windows.nsis` named no icon, so the installer script's `INSTALLERICON` was an empty string and both `setup.exe` and `uninstall.exe` fell back to NSIS's own icon. The set is now generated from the branding image with `tauri icon` (`icon.ico` carries 16/24/32/48/64/256) and both NSIS icon settings point at it.
+- The release workflow moved to each action's Node 24 release (`upload-artifact@v6`, `download-artifact@v7`, `pnpm/action-setup@v5`), which clears the Node 20 deprecation warnings.
+
 ## 0.0.6 - 2026-09-16
 
 ### Fixed

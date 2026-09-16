@@ -26,7 +26,7 @@ Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppI
 together with `SHA256SUMS`. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.6_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.7_amd64.deb"
 ```
 
 ### From source

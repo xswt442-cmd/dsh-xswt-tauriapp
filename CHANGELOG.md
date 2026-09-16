@@ -3,6 +3,13 @@
 Release notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## 0.0.7 - 2026-09-17
+
+### 修复
+
+- 应用与安装包改用项目自己的图标。此前 `src-tauri/icons/` 还是 Tauri 脚手架的蓝色圆角方块——仓库、exe、已安装副本三者逐字节相同；Windows 上还有第二处问题：`bundle.windows.nsis` 没有指定图标，安装器脚本里的 `INSTALLERICON` 因此是空串，`setup.exe` 与 `uninstall.exe` 都回落到 NSIS 自带图标。图标现由 `tauri icon` 从品牌图生成（`icon.ico` 含 16/24/32/48/64/256 帧），两处 NSIS 图标设置指向它。
+- 发布工作流改用各自默认 Node 24 的 action 版本（`upload-artifact@v6`、`download-artifact@v7`、`pnpm/action-setup@v5`），不再产生 Node 20 弃用告警。
+
 ## 0.0.6 - 2026-09-16
 
 ### 修复
