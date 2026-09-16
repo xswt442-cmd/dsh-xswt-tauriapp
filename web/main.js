@@ -266,6 +266,9 @@ async function goToDsh() {
   } catch (error) {
     // Surfacing this inside the dialog would be invisible once the dialog is
     // gone, which is exactly when this runs — so it becomes a failure page.
+    // It also goes to the harness's stderr: this is the failure that decides
+    // whether the app is usable at all, and a packaged GUI has no terminal.
+    reportFailure("open_dsh", error);
     navigated = false;
     dialogOpen = false;
     el("dialog").classList.add("hidden");

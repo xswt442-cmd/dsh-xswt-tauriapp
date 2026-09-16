@@ -21,6 +21,11 @@ dsh owns its own page. It does not modify, patch or vendor dsh.
 - Two windows, and the split is load-bearing: `bootstrap` (local origin, the only
   one with a capability) carries progress, updates and failures; `dsh` (remote
   origin, no capability) carries the dsh interface alone.
+- A failure on the bootstrap page reaches stderr through `page_diag`, not only the
+  failure view: a packaged GUI has no terminal, so a failure that is merely
+  rendered is indistinguishable from a shell that stopped. The hand-off's own
+  catch is the one that matters most — it is the difference between "dsh never
+  appeared" and a reason why.
 - Keep dsh's security semantics. Its session cookie is `SameSite=Strict`; never
   relax it. The first navigation into dsh must be **host-initiated**, with the
   cookie already in the store — that is what makes Strict work, and a shell page
