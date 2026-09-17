@@ -3,7 +3,13 @@
 [中文](./README.md) | [English](./README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
-![DSH shell](https://img.shields.io/badge/DSH-shell-4d6bfe)
+[![DSH](https://img.shields.io/badge/DSH-desktop%20harness-4d6bfe)](https://github.com/deepseek-ai/deepseek-harness)
+[![release](https://img.shields.io/github/v/release/xswt442-cmd/dsh-xswt-tauriapp?label=release&color=2ea043)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest)
+[![DSH compatibility](https://img.shields.io/badge/DSH-%3E%3D0.1.5--rc.1-4d6bfe)](#platform-and-compatibility)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078d4)](#platform-and-compatibility)
+[![runtime](https://img.shields.io/badge/runtime-system%20WebView-8957e5)](#platform-and-compatibility)
+[![compat](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml/badge.svg)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml)
+[![downloads](https://img.shields.io/github/downloads/xswt442-cmd/dsh-xswt-tauriapp/total?label=downloads)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases)
 
 A lightweight Tauri desktop shell for DeepSeek Harness — more precisely, a **desktop harness / runtime supervisor** for dsh. Tauri owns everything around it: windows, the server process, launching and reuse, the session hand-off, menus/tray/shortcuts, updates, external links and failure recovery; dsh owns its own page. The shell does not modify dsh, and it **does not inject a script into dsh's page, read its DOM, patch its CSS, or draw shell UI over it** — nor does it take part in dsh's session, sandbox or permission model.
 

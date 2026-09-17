@@ -3,7 +3,13 @@
 [中文](./README.md) | [English](./README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
-![DSH shell](https://img.shields.io/badge/DSH-shell-4d6bfe)
+[![DSH](https://img.shields.io/badge/DSH-desktop%20harness-4d6bfe)](https://github.com/deepseek-ai/deepseek-harness)
+[![release](https://img.shields.io/github/v/release/xswt442-cmd/dsh-xswt-tauriapp?label=release&color=2ea043)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest)
+[![DSH compatibility](https://img.shields.io/badge/DSH-%3E%3D0.1.5--rc.1-4d6bfe)](#平台与兼容性)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078d4)](#平台与兼容性)
+[![runtime](https://img.shields.io/badge/runtime-system%20WebView-8957e5)](#平台与兼容性)
+[![compat](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml/badge.svg)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml)
+[![downloads](https://img.shields.io/github/downloads/xswt442-cmd/dsh-xswt-tauriapp/total?label=downloads)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases)
 
 DeepSeek Harness 的轻量 Tauri 桌面外壳 —— 更准确地说，是 dsh 的 **desktop harness / runtime supervisor**：Tauri 负责 dsh 的外围（窗口、进程、启动与复用、会话交接、菜单/托盘/快捷键、更新、外链、故障恢复），dsh 自己负责页面内容。外壳不修改 dsh 源码，**不向 dsh 页面注入脚本、不读它的 DOM、不改它的 CSS，也不在它上面覆盖任何外壳 UI**，同样不介入 dsh 的会话、沙箱与权限模型。
 
