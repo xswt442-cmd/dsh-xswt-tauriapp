@@ -82,9 +82,13 @@ code {
   margin: 16px 0 8px;
 }
 
+/* Size matters here, not decoration. The mark's eye patch and belly are
+   transparent cut-outs in the icon, so they disappear into the background when
+   it is drawn small: at 32 device pixels it reads as a plain pink blob. 64 and 40
+   keep them alive on a 1x display as well as a 2x one. */
 .brand-mark {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   margin: 0 auto;
 }
 
@@ -95,8 +99,8 @@ code {
 }
 
 .brand-mark.small {
-  width: 32px;
-  height: 32px;
+  width: 48px;
+  height: 48px;
   margin: 0;
   flex: none;
 }

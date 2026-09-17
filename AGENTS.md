@@ -58,11 +58,14 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 - Keep the four version fields equal and each README/CHANGELOG pair in sync.
 - Icons come from `tauri icon`; changing `src-tauri/icons/` does not rebuild the exe,
   so touch `src-tauri/build.rs` first.
-- `web/whale.png` is derived from `src-tauri/icons/128x128@2x.png`: the glyph's eye
-  patch and belly are transparent cut-outs, so on the launcher's dark background the
-  raw file reads as a plain pink blob. The derived one fills the regions *enclosed*
-  by the glyph (a flood fill from the border separates them from the background).
-  Regenerate it if the branding image changes.
+- `web/whale.png` is an unmodified copy of `src-tauri/icons/128x128@2x.png` (only
+  the frontend directory is served). The glyph's eye patch and belly are transparent
+  cut-outs, so they read as background-coloured voids: measured, they survive at 64
+  and 96 device pixels (2x displays from ~32px) but not at 32-48 on a 1x display,
+  where the mark is a soft pink shape. That is accepted, not compensated for by
+  editing the brand asset — the mark is `aria-hidden` decoration and the product name
+  sits beside it in text. Raising the size further stops helping long before it fixes
+  a 1x display.
 
 ## Verify
 

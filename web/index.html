@@ -10,10 +10,10 @@
     <!-- ── splash ───────────────────────────────────────────────────────── -->
     <main id="splash" class="stage">
       <div class="brand">
-        <!-- The project's own icon. `web/whale.png` is `icons/128x128@2x.png`
-             with the glyph's enclosed transparent regions filled: its eye patch
-             and belly are cut out, so on this background the raw file reads as a
-             plain pink blob. -->
+        <!-- The project's own icon, unmodified: `web/whale.png` is a copy of
+             `src-tauri/icons/128x128@2x.png`, because only the frontend directory
+             is served. Its eye patch and belly are transparent cut-outs, so it has
+             to be drawn large enough for them to survive — hence the size below. -->
         <div class="brand-mark"><img src="whale.png" alt="DeepSeek Harness" /></div>
         <h1>DeepSeek Harness</h1>
         <p id="splash-message" class="muted">正在启动…</p>
