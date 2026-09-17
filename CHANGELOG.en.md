@@ -3,6 +3,24 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Added
+
+- The port can be chosen at launch. The dialog carries a port field under the version columns, with the default shown in grey (the first free port of `3080`–`3129`, or one typed before); confirming accepts it, and any other port can be typed instead.
+- Port availability is decided up front and told apart in four ways: reusable / owned by another program / a dsh this machine cannot enter (a Windows-side instance, or one under another `DSH_HOME`) / below `1024` — instead of being discovered by a failed start.
+- A port typed by hand is remembered and offered as the next default.
+
+### Changed
+
+- The dialog now appears on every launch (titled "启动 dsh", primary button "打开 dsh"). It used to appear only when an update existed, so there was no moment at which a port could be chosen. The update check runs alongside the port scan, so confirming never waits on the registry.
+- Discovery candidates now come from the file names in `$DSH_HOME/launcher/logs` rather than a sweep of `3080`–`3129`, and the scan uses a shorter connect timeout of its own. That is what lets an unusual port be found again, and it removes the ~40 second cold start measured on Windows with no server running.
+
+### Fixed
+
+- A menu or tray that fails to build no longer stops the application from starting. Both are conveniences, and `setup` used to treat their failure as a failed launch — fatal on a desktop without a StatusNotifier host, and on the macOS menu path that had never been run.
+- The dialog's "installed at" line showed the loopback URL; it now shows the resolved dsh launcher.
+
 ## 0.0.7 - 2026-09-17
 
 ### Fixed

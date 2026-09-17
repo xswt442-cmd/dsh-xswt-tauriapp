@@ -367,6 +367,70 @@ button.ghost:hover {
   padding: 8px 2px;
 }
 
+/* ── the port choice ───────────────────────────────────────────────────── */
+
+.port {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.port label {
+  font-size: 13px;
+  padding-top: 8px;
+}
+
+.port input {
+  font: inherit;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  width: 120px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  /* The default lives in the placeholder, so it has to read as a value the
+     user could accept rather than as an example. */
+  text-align: center;
+}
+
+.port input::placeholder {
+  color: var(--text-dim);
+}
+
+.port input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.port input::-webkit-outer-spin-button,
+.port input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.port input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.port-notes {
+  flex: 1;
+  min-width: 0;
+}
+
+.port-notes p {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.port-notes .error-inline {
+  margin-top: 8px;
+}
+
 /* ── footer ────────────────────────────────────────────────────────────── */
 
 .dialog-foot {

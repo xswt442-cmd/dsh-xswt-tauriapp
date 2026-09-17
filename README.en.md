@@ -11,6 +11,7 @@ A lightweight Tauri desktop shell for DeepSeek Harness — more precisely, a **d
 
 - **Reuse or start a server**: scans ports 3080–3129 and reuses a running `dsh web` when there is one; otherwise it starts one on the first free port.
 - **Launch-token handshake and session hand-off**: dsh hands its interface only to a request carrying the token it minted at startup. The handshake is walked and verified in Rust, and the resulting session cookie is given to the window — the launch token never reaches a page's URL.
+- **Pick the port at launch**: the dialog carries a port field under the version columns, with the default shown in grey (the first free port of `3080`–`3129`, or a port you typed before). Confirming accepts it; typing any other port uses that instead. A port that cannot be used is answered there, not after a failed start.
 - **Two windows**: the shell's own `bootstrap` page carries progress, updates and failures; the `dsh` window shows dsh alone. Nothing from startup can end up drawn over dsh.
 - **Update check on launch**: reads the published versions of `@deepseek-ai/dsh` from npm and shows them in three columns — stable, RC and alpha — with the option to install any of them and restart.
 - **Don't remind me about this version**: suppresses the launch prompt for that one version; a newer version still prompts.
@@ -71,6 +72,20 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | Start | `node <dsh>/lib/bin.js web --port <p> --no-open`, in its own process group, appending to that same log |
 
 The server log is the only source of the token, so an instance started by hand in a terminal — whose log never lands there — is not recognised, and the shell starts one of its own. That follows from dsh's authentication model; the shell does not guess around it.
+
+### Choosing the port
+
+| Situation | Behaviour |
+|---|---|
+| An adoptable server was found | The field is pre-filled with its port; confirming reuses it. Typing another port starts a second instance |
+| Nothing adoptable | Default is the first free port of `3080`–`3129`, or a port you typed before while it is still free |
+| Another program owns the port | Said there and then; confirming does not go ahead |
+| A dsh is there that this machine cannot enter | Called out separately — a Windows-side instance, or one started under a different `DSH_HOME` |
+| Below `1024` | Refused: an ordinary user cannot bind it |
+
+Only a port you **typed** is remembered, and used as the next default. Accepting the grey default is not a choice, so the default keeps tracking the first free port.
+
+Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/server-<port>.out.log` rather than from a sweep of the whole band: a port with no log has no launch token, so its handshake could never complete and probing it is wasted work. That is also what lets a deliberately unusual port — `9000`, say — be found again on the next launch, which a `3080`–`3129` sweep never could.
 
 ### Window model and the first navigation
 

@@ -26,12 +26,29 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 /// First port of the band dsh uses for `web` instances.
 pub const START_PORT: u16 = 3080;
 /// Last port of the band dsh uses for `web` instances.
 pub const MAX_PORT: u16 = 3129;
+/// Lowest port the harness will start a server on.
+///
+/// Below this a bind needs privileges a launched desktop app does not have, so
+/// it is refused up front rather than left to fail inside dsh.
+pub const MIN_PORT: u16 = 1024;
 /// How long a TCP connect may take before the port counts as closed.
+///
+/// Used where a false "free" would be costly — `find_free_port` picks a port to
+/// bind, and a wrong answer there turns into dsh failing to start.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(800);
+/// How long a TCP connect may take while *looking for* an existing server.
+///
+/// Shorter on purpose. A listening loopback socket accepts in microseconds, so
+/// this only shortens how long a port that is *not* listening is waited on — and
+/// on Windows a closed loopback port has been measured consuming the whole
+/// timeout, which turned the 50-port band into a 40 second cold start.
+pub const SCAN_CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
 /// How long one HTTP probe may take.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long we wait for a freshly spawned server to serve its UI.
@@ -41,6 +58,12 @@ pub const BOOT_TIMEOUT_SECS: u64 = 120;
 pub const UI_MARKER: &str = "DeepSeek Harness";
 /// Bytes of log tail scanned for the startup token.
 const LOG_TAIL_BYTES: u64 = 256 * 1024;
+/// What a dsh web server answers an unauthenticated request with.
+///
+/// Matched to tell "another program" apart from "a dsh this machine cannot
+/// enter": the Windows-side instance seen from WSL, for instance, listens on the
+/// same loopback and keeps its token and logs on the other side.
+const AUTH_REQUIRED: &str = "dsh web authentication required";
 
 /// The Harness home: `$DSH_HOME` when it points at an existing directory, else
 /// `~/.dsh`.
@@ -338,7 +361,9 @@ pub fn cookie_pair(set_cookie: &str) -> String {
 /// in hand. A server on the port that is not dsh answers with something else and
 /// is rejected rather than embedded.
 pub fn resolve_session(port: u16) -> Option<Session> {
-    if !probe_port(port, CONNECT_TIMEOUT) {
+    // The scan bound, not the bind bound: a server that is up accepts at once,
+    // and a port with nothing on it must not cost 800ms to rule out.
+    if !probe_port(port, SCAN_CONNECT_TIMEOUT) {
         return None;
     }
 
@@ -397,9 +422,49 @@ pub fn resolve_ui_url(port: u16) -> Option<String> {
     resolve_session(port).map(|session| session.url)
 }
 
-/// The first dsh web session already listening on the band, if any.
+/// Ports this machine has run a dsh web server on, most recent log first.
+///
+/// The log file name carries the port (`server-<port>.out.log`), which makes the
+/// log directory the complete list of ports worth probing: a port with no log
+/// has no launch token, so [`resolve_session`] could never enter a server there
+/// however long it tried. Probing the rest of the band is therefore pure waste —
+/// 50 connects instead of a handful — and it is also what makes a deliberately
+/// unusual port discoverable on the next launch.
+///
+/// The one case this gives up is a dsh started by hand in a terminal, whose log
+/// went to that terminal instead, *and* which serves its UI without
+/// authentication. There is no token to recover for it either way.
+pub fn logged_ports(dir: &Path) -> Vec<u16> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(std::time::SystemTime, u16)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let port: u16 = name
+                .to_str()?
+                .strip_prefix("server-")?
+                .strip_suffix(".out.log")?
+                .parse()
+                .ok()?;
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, port))
+        })
+        .collect();
+    // Newest first: the log written most recently belongs to the server most
+    // likely to still be running.
+    found.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    found.into_iter().map(|(_, port)| port).collect()
+}
+
+/// The first dsh web session already running, if any.
+///
+/// Candidates come from [`logged_ports`] rather than the whole 3080–3129 band.
 pub fn find_running_session() -> Option<Session> {
-    (START_PORT..=MAX_PORT).find_map(resolve_session)
+    logged_ports(&log_dir())
+        .into_iter()
+        .find_map(resolve_session)
 }
 
 /// The first dsh web UI already listening on the band, if any.
@@ -410,6 +475,81 @@ pub fn find_running_url() -> Option<(u16, String)> {
 /// The first port of the band with nothing listening on it.
 pub fn find_free_port() -> Option<u16> {
     (START_PORT..=MAX_PORT).find(|port| !probe_port(*port, CONNECT_TIMEOUT))
+}
+
+/// What would happen on a port the user picked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortChoice {
+    /// A dsh server is already running there and can be entered as it is.
+    Reuse(Session),
+    /// Nothing is listening; a server would be started there.
+    Start,
+    /// Something is listening that is not a dsh at all.
+    Occupied,
+    /// A dsh is listening, but its session cannot be entered from here — its
+    /// token and logs belong to another machine or another `$DSH_HOME`. Worth
+    /// saying, because "occupied" would read as a bug to whoever started it.
+    Foreign,
+    /// Below [`MIN_PORT`], where a bind needs privileges.
+    TooLow,
+}
+
+/// Decide what `port` would mean, without doing any of it.
+///
+/// This is what lets the dialog answer before the user commits: "will reuse",
+/// "will start" and "something else is there" are all knowable up front, and the
+/// third one has to be said *before* a 120 second wait rather than after it.
+pub fn check_port(port: u16) -> PortChoice {
+    if port < MIN_PORT {
+        return PortChoice::TooLow;
+    }
+    if !probe_port(port, SCAN_CONNECT_TIMEOUT) {
+        return PortChoice::Start;
+    }
+    if let Some(session) = resolve_session(port) {
+        return PortChoice::Reuse(session);
+    }
+    // Listening, but not enterable. Ask once more whether what is there at least
+    // *is* a dsh, so the two cases can be told apart in the dialog.
+    let probe = http_get(port, "/", None);
+    if probe.status == 401 && probe.body.contains(AUTH_REQUIRED) {
+        PortChoice::Foreign
+    } else {
+        PortChoice::Occupied
+    }
+}
+
+/// What the shell should offer before it starts anything.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    /// A server already running that can be entered as it is, if any.
+    pub running: Option<Session>,
+    /// The port the field offers when the user does not care.
+    pub suggested_port: u16,
+}
+
+/// Work out what to offer: an already-running server, and a port to suggest.
+///
+/// `last_chosen` is the port the user typed by hand last time, if there was one.
+/// A deliberate choice outranks the first free port of the band, so wanting 3090
+/// does not mean asking for it on every launch — but only while it is still
+/// free, since a suggestion that cannot be used is worse than the default.
+pub fn plan(last_chosen: Option<u16>) -> Result<Plan, String> {
+    let running = find_running_session();
+    if let Some(session) = &running {
+        return Ok(Plan {
+            running: running.clone(),
+            suggested_port: session.port,
+        });
+    }
+    let suggested_port = last_chosen
+        .filter(|port| *port >= MIN_PORT && !probe_port(*port, CONNECT_TIMEOUT))
+        .or_else(find_free_port)
+        .ok_or_else(|| format!("{START_PORT}–{MAX_PORT} 端口全部被占用，没有可用端口。"))?;
+    Ok(Plan {
+        running: None,
+        suggested_port,
+    })
 }
 
 /// How a spawned server was started, for the log and for the caller's records.
@@ -506,7 +646,10 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cookie_pair, node_prefix_of, Session};
+    use super::{
+        check_port, cookie_pair, logged_ports, node_prefix_of, PortChoice, PortMemory, Session,
+        MIN_PORT,
+    };
     use std::path::Path;
 
     #[test]
@@ -566,6 +709,62 @@ mod tests {
         // The address handed to a page never carries the token, whatever the
         // authentication shape.
         assert_eq!(authenticated.url, "http://127.0.0.1:3080/");
+    }
+
+    #[test]
+    fn logged_ports_are_the_candidates_and_nothing_else() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let write = |name: &str| std::fs::write(dir.path().join(name), "").expect("write");
+        write("server-3080.out.log");
+        // The newest log belongs to the server most likely to still be running,
+        // so it has to be tried first.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write("server-9000.out.log");
+        // Not candidates: an error log carries no token, and neither does a file
+        // that merely looks similar.
+        write("server-3081.err.log");
+        write("notes.txt");
+        write("server-notaport.out.log");
+
+        assert_eq!(logged_ports(dir.path()), vec![9000, 3080]);
+    }
+
+    #[test]
+    fn a_missing_log_directory_is_simply_no_candidates() {
+        // A machine that has never run dsh has no log directory, which is a
+        // normal first launch rather than a failure.
+        assert!(logged_ports(Path::new("/nonexistent/dsh-logs")).is_empty());
+    }
+
+    #[test]
+    fn privileged_ports_are_refused_before_anything_is_probed() {
+        // Below MIN_PORT a bind needs root. Answering without touching the
+        // network is what makes this testable without a server.
+        assert_eq!(check_port(MIN_PORT - 1), PortChoice::TooLow);
+        assert_eq!(check_port(80), PortChoice::TooLow);
+    }
+
+    #[test]
+    fn the_chosen_port_round_trips_through_disk() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("nested").join("last-port.json");
+        let mut memory = PortMemory::load(&path);
+        assert_eq!(memory.last, None, "nothing remembered on a first launch");
+
+        memory.remember(9000).expect("persist");
+        // Read back the way the next launch would.
+        assert_eq!(PortMemory::load(&path).last, Some(9000));
+
+        // A corrupt file must not block startup.
+        std::fs::write(&path, "{ not json").expect("write");
+        assert_eq!(PortMemory::load(&path).last, None);
+    }
+
+    #[test]
+    fn an_in_memory_port_memory_never_touches_disk() {
+        let mut memory = PortMemory::in_memory();
+        memory.remember(3090).expect("remember");
+        assert_eq!(memory.last, Some(3090));
     }
 }
 
@@ -672,5 +871,99 @@ where
             "dsh 服务在 {timeout_secs} 秒内未就绪（进程已退出或超时）。\n日志目录：{}",
             spec.log_dir.display()
         ))
+    }
+}
+
+/// Reuse the server on `port` if there is one, else start a server there.
+///
+/// The port is used as given — there is no free-port search behind it, so a port
+/// something else owns is an error rather than a silent move to another one. The
+/// user asked for this port; quietly ignoring that would be worse than failing.
+pub fn start_on_with_progress<F>(port: u16, mut progress: F) -> Result<Launch, String>
+where
+    F: FnMut(&str),
+{
+    if port < MIN_PORT {
+        return Err(format!(
+            "端口 {port} 低于 {MIN_PORT}，普通用户无法绑定。请换一个 ≥ {MIN_PORT} 的端口。"
+        ));
+    }
+    if let Some(session) = resolve_session(port) {
+        progress(&format!("已复用端口 {port} 上的 dsh 服务"));
+        return Ok(Launch::Reused(session));
+    }
+    if probe_port(port, CONNECT_TIMEOUT) {
+        return Err(format!("端口 {port} 已被其他程序占用。"));
+    }
+    progress(&format!("正在端口 {port} 启动 dsh 服务…"));
+    let spec = SpawnSpec::resolve(port, log_dir())?;
+    let mut child = spawn_server(&spec).map_err(|error| format!("启动 dsh 服务失败：{error}"))?;
+    let started = Instant::now();
+    if let Some(session) = wait_for_ui(port, &mut child, BOOT_TIMEOUT_SECS) {
+        progress(&format!("服务已就绪（{} 秒）", started.elapsed().as_secs()));
+        Ok(Launch::Started(session))
+    } else {
+        Err(format!(
+            "端口 {port} 上的 dsh 服务在 {BOOT_TIMEOUT_SECS} 秒内未就绪（进程已退出或超时）。\n日志目录：{}",
+            spec.log_dir.display()
+        ))
+    }
+}
+
+/// [`start_on_with_progress`] without progress reporting.
+pub fn start_on(port: u16) -> Result<Launch, String> {
+    start_on_with_progress(port, |_| {})
+}
+
+/// The port the user last chose by hand, persisted as JSON.
+///
+/// Only an explicit choice is stored. The port the shell picked on its own is
+/// not worth remembering — recomputing the first free port is cheaper and stays
+/// correct as the machine changes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PortMemory {
+    /// Last port chosen by hand, if there ever was one.
+    #[serde(default)]
+    pub last: Option<u16>,
+    /// Where the value is persisted. Absent for in-memory use.
+    #[serde(skip)]
+    pub path: Option<PathBuf>,
+}
+
+impl PortMemory {
+    /// An in-memory store, for tests and for a failed load.
+    pub fn in_memory() -> Self {
+        Self::default()
+    }
+
+    /// Load from `path`, falling back to "nothing remembered" when the file is
+    /// missing or unreadable. A corrupt file must never block startup.
+    pub fn load(path: impl AsRef<Path>) -> Self {
+        let path = path.as_ref().to_path_buf();
+        let mut memory = match fs::read_to_string(&path) {
+            Ok(text) => serde_json::from_str::<Self>(&text).unwrap_or_default(),
+            Err(_) => Self::default(),
+        };
+        memory.path = Some(path);
+        memory
+    }
+
+    /// Remember `port` and persist it.
+    pub fn remember(&mut self, port: u16) -> Result<(), String> {
+        self.last = Some(port);
+        self.save()
+    }
+
+    /// Persist the value, creating parent directories as needed.
+    pub fn save(&self) -> Result<(), String> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| format!("创建目录失败：{error}"))?;
+        }
+        let text =
+            serde_json::to_string_pretty(self).map_err(|error| format!("序列化失败：{error}"))?;
+        fs::write(path, text).map_err(|error| format!("写入失败：{error}"))
     }
 }

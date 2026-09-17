@@ -5,11 +5,41 @@
 //! remote origin that no capability covers. That is deliberate — the wrapped app
 //! must never gain access to the harness's command surface.
 
+use dsh_xswt_tauriapp_core::server::{self, PortChoice};
+use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::state::{self, SharedShell, ShellState};
 use crate::update::{self, UpdatePayload};
-use crate::{guest, shell_log};
+use crate::{bootstrap, guest, shell_log};
+
+/// What the port in the dialog would do, classified.
+///
+/// Only the classification crosses the bridge: the wording belongs to the page,
+/// which also styles the three cases differently.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortKind {
+    /// A dsh is already running there and will be entered.
+    Reuse,
+    /// Nothing is listening there; a server will be started.
+    Start,
+    /// Something else owns the port.
+    Occupied,
+    /// A dsh is there, but this machine cannot enter its session.
+    Foreign,
+    /// Below the port a desktop application may bind.
+    TooLow,
+}
+
+/// The answer to "what if I used this port?", with the port it is about.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PortVerdict {
+    /// What would happen.
+    pub kind: PortKind,
+    /// The port that was asked about.
+    pub port: u16,
+}
 
 /// The current snapshot, for the page to pull after it has attached listeners.
 #[tauri::command]
@@ -32,6 +62,56 @@ pub fn get_state(shell: State<'_, SharedShell>) -> ShellState {
 #[tauri::command]
 pub async fn open_dsh(app: AppHandle, shell: State<'_, SharedShell>) -> Result<(), String> {
     guest::spawn(&app, shell.inner())
+}
+
+/// Classify a port before the user commits to it.
+///
+/// `async` for the same reason `open_dsh` is: it makes blocking network calls,
+/// and a synchronous command would run them inside the webview's own IPC
+/// callback, on the main thread, with the window frozen for as long as they take.
+#[tauri::command]
+pub async fn check_port(port: u16) -> PortVerdict {
+    let kind = match server::check_port(port) {
+        PortChoice::Reuse(_) => PortKind::Reuse,
+        PortChoice::Start => PortKind::Start,
+        PortChoice::Occupied => PortKind::Occupied,
+        PortChoice::Foreign => PortKind::Foreign,
+        PortChoice::TooLow => PortKind::TooLow,
+    };
+    PortVerdict { kind, port }
+}
+
+/// Start — or adopt — a server on the port the user chose.
+///
+/// Returns as soon as the work is under way: spawning a server can take its whole
+/// boot, so the outcome arrives as `shell://ready` or `shell://error` instead of
+/// as this call's return value, and the page shows progress meanwhile.
+#[tauri::command]
+pub async fn start_server(
+    app: AppHandle,
+    shell: State<'_, SharedShell>,
+    port: u16,
+) -> Result<(), String> {
+    let shared = shell.inner().clone();
+    // Only a port the user actually named is remembered. Accepting the suggested
+    // default is not a preference, and remembering it would pin the suggestion
+    // to whatever the first launch happened to pick — the point of the default
+    // is that it keeps tracking the first free port.
+    let named = shared
+        .lock()
+        .map(|guard| guard.state.default_port != Some(port))
+        .unwrap_or(false);
+    if named {
+        // Before anything can fail, and kept even if it does: a port this user
+        // asked for is the port they want next time too.
+        if let Ok(mut guard) = shared.lock() {
+            if let Err(error) = guard.port_memory.remember(port) {
+                shell_log!("[dsh-harness] could not remember port {port}: {error}");
+            }
+        }
+    }
+    std::thread::spawn(move || bootstrap::start(app, shared, port));
+    Ok(())
 }
 
 /// Re-run the update check on demand (the dialog's "重新检查").

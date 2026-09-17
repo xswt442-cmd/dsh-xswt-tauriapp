@@ -91,6 +91,15 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         .as_ref()
         .map(updates::DismissStore::load)
         .unwrap_or_default();
+    let port_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("last-port.json"));
+    let port_memory = port_path
+        .as_ref()
+        .map(server::PortMemory::load)
+        .unwrap_or_default();
     shell_log!(
         "[dsh-harness] dismiss store {} -> {:?}",
         dismiss_path
@@ -105,10 +114,14 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
             phase: state::Phase::Starting,
             message: "正在启动…".into(),
             log_dir: Some(server::log_dir().display().to_string()),
+            // Resolved once here rather than per check: the dialog's "installed
+            // at" line used to show the loopback URL, which is not where dsh is.
+            dsh_bin: server::resolve_dsh_bin().map(|path| path.display().to_string()),
             ..Default::default()
         },
         store,
         dismiss_path,
+        port_memory,
         ..Default::default()
     }))
 }
@@ -155,18 +168,29 @@ pub fn run() {
             // manager degrades to `None` and the harness carries on.
             app.manage(menu::Shortcuts::install());
 
+            // The bootstrap window is the one thing there is no substitute for;
+            // without it there is nothing to show, so this one may fail startup.
             build_bootstrap(app)?;
-            menu::install(&handle, &shell)?;
+
+            // The menu and the tray are conveniences, and a desktop that will
+            // not give us one — no StatusNotifier host, no indicator library —
+            // must not stop dsh from coming up. Same rule the shortcuts already
+            // follow, and the reason the macOS menu is not a startup risk.
+            if let Err(error) = menu::install(&handle, &shell) {
+                shell_log!("[dsh-harness] no menu or tray on this desktop: {error}");
+            }
             menu::watch_hotkeys(&handle);
 
-            // Discovery, the server spawn and the registry fetch all block. They
-            // run on their own thread so the window keeps painting.
+            // Discovery and the registry fetch block. They run on their own
+            // thread so the window keeps painting.
             let worker_app = handle.clone();
-            std::thread::spawn(move || bootstrap::run(worker_app, shell));
+            std::thread::spawn(move || bootstrap::discover(worker_app, shell));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::check_port,
+            commands::start_server,
             commands::open_dsh,
             commands::page_diag,
             commands::check_updates,

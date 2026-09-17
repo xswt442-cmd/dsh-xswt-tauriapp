@@ -28,9 +28,22 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 - Non-GUI logic lives in `crates/dsh-core`, which must build and test without
   webkit2gtk, and hands over a prepared `Session` (clean URL + cookie) — never a
   token URL.
-- Discovery stays as dsh has it: ports 3080–3129, token from
+- Discovery stays as dsh has it: token from
   `$DSH_HOME/launcher/logs/server-<port>.out.log`, two-step handshake, detached
-  server that outlives the window.
+  server that outlives the window. The **candidate ports come from those log file
+  names**, not from a sweep of 3080–3129: a port with no log has no token, so
+  probing it can never pay off, and only the log records a port outside the band.
+  `SCAN_CONNECT_TIMEOUT` is for that scan; `CONNECT_TIMEOUT` is for
+  `find_free_port`, where a false "free" turns into dsh failing to bind.
+- The port is the user's: `discover` offers (and starts nothing), `start_server`
+  acts on the answer. Only a port the user **typed** is remembered — accepting the
+  suggested default must leave the suggestion free to keep tracking the first free
+  port. A port that is listening but not enterable is `Foreign`, not `Occupied`
+  (a Windows-side instance seen from WSL looks exactly like that), because
+  "occupied" reads as a bug to whoever started it.
+- The menu and the tray must never be able to stop startup: `menu::install` is
+  logged and ignored on failure. The bootstrap window is the one thing to fail
+  hard on, because there is nothing to show without it.
 - Shortcuts are tray-based and grabbed **only while one of our windows has focus**,
   never permanently. A refused grab is normal — bare `F12` often is taken — so the
   release path must tolerate it: release each binding on its own, because
@@ -66,5 +79,8 @@ node scripts/check-docs.mjs
 - `cargo run --example launch --manifest-path crates/dsh-core/Cargo.toml` walks the
   real handshake and prints `url=` and `cookie=`. That stdout is a **live session
   cookie**: redact it.
+- `cargo run --example port-choice --manifest-path crates/dsh-core/Cargo.toml`
+  walks `plan` → `check_port` → `start_on` without a GUI, including the custom-port
+  case and the `Occupied`/`Foreign` distinction. It leaves its servers running.
 - The hand-off is measured on Linux and Windows and **not** on macOS. The Windows
   recipe, and everything else learned there, is in `testplace/WORKLOG.md`.

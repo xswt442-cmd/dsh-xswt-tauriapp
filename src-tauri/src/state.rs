@@ -24,6 +24,9 @@ pub const EVENT_READY: &str = "shell://ready";
 pub const EVENT_ERROR: &str = "shell://error";
 /// Result of an update check; carries an [`crate::update::UpdatePayload`].
 pub const EVENT_UPDATE: &str = "shell://update";
+/// Startup reached the point where the user picks a port and a version; carries
+/// the full [`ShellState`].
+pub const EVENT_CHOOSE: &str = "shell://choose";
 
 /// The window showing the shell's own UI: progress, updates, failures. A local
 /// origin, and the only window a capability is granted to.
@@ -37,9 +40,13 @@ pub const GUEST_LABEL: &str = "dsh";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Phase {
-    /// Finding or starting a server.
+    /// Finding a server, or starting one the user already asked for.
     #[default]
     Starting,
+    /// Discovery is done and the user has not chosen a port yet. Nothing is
+    /// started in this phase: which port to use is the user's call, so the
+    /// server is only spawned once they make it.
+    Choosing,
     /// A prepared session exists.
     Ready,
     /// Startup failed; [`ShellState::error`] says why.
@@ -60,6 +67,15 @@ pub struct ShellState {
     pub port: Option<u16>,
     /// Whether an existing server was reused rather than started.
     pub reused: bool,
+    /// The port the field offers when the user does not care. Rendered as the
+    /// input's placeholder, so it is grey and costs nothing to accept.
+    pub default_port: Option<u16>,
+    /// An already-running server the shell can enter, if there is one. Distinct
+    /// from `port`, which is only set once a session exists.
+    pub running_port: Option<u16>,
+    /// The resolved dsh launcher, so the dialog's "installed at" line shows a
+    /// path rather than, as it used to, the loopback URL.
+    pub dsh_bin: Option<String>,
     /// Fatal startup error, when `phase` is `failed`.
     pub error: Option<String>,
     /// The installed dsh version.
@@ -102,6 +118,8 @@ pub struct Shell {
     pub session: Option<server::Session>,
     /// How far the guest window hand-off has got.
     pub handoff: Handoff,
+    /// The port the user last chose by hand.
+    pub port_memory: server::PortMemory,
     /// Zoom factor of the guest window, tracked here because the webview has no
     /// getter for it.
     pub zoom: f64,
@@ -115,6 +133,7 @@ impl Default for Shell {
             dismiss_path: None,
             session: None,
             handoff: Handoff::default(),
+            port_memory: server::PortMemory::default(),
             zoom: 1.0,
         }
     }

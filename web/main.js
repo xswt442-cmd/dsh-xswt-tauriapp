@@ -1,12 +1,12 @@
-// Splash, failure and the update dialog — the shell's own page.
+// The shell's own page: the launch dialog, progress, and failures.
 //
-// The page is a small state machine. Tauri creates the bootstrap window on this
-// page and a worker thread in Rust does the slow work; the page only decides
-// *when* to hand over, so that an available update can be shown first. The
-// hand-off happens exactly once, through `open_dsh` — and what it does is build
-// a **separate** window for dsh. This page never navigates anywhere, which is
-// the point: a shell page navigating to dsh would be a cross-site navigation,
-// and dsh's `SameSite=Strict` session cookie would be withheld on it.
+// Two steps, because the port is the user's call. Rust discovers what is already
+// running and works out a port to suggest (`shell://choose`); this page shows it
+// and waits. Nothing is started until the user confirms, and only once a session
+// exists (`shell://ready`) does this page ask for the dsh window through
+// `open_dsh` — which builds a **separate** window. This page never navigates
+// anywhere, which is the point: a shell page navigating to dsh would be a
+// cross-site navigation, and dsh's `SameSite=Strict` cookie would be withheld.
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -25,8 +25,10 @@ let selected = null;
 let dismissTarget = null;
 /** The webview has been handed to the dsh UI. */
 let navigated = false;
-/** The update dialog is on screen. */
+/** The launch dialog is on screen. */
 let dialogOpen = false;
+/** The port was confirmed and a server is being started for it. */
+let starting = false;
 
 // ── failure reporting ──────────────────────────────────────────────────────
 
@@ -179,7 +181,9 @@ function renderChannels() {
   if (!report) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "没有可用的版本信息。";
+    // The dialog opens before the registry answers, so "nothing yet" and
+    // "nothing at all" have to read differently.
+    empty.textContent = updateSettled ? "没有可用的版本信息。" : "正在检查更新…";
     host.append(empty);
     return;
   }
@@ -232,25 +236,170 @@ function updateButtons() {
   button.textContent = runnable ? `更新到 ${selected} 并重启` : "更新并重启";
 }
 
+/** Open the launch dialog. Re-opening it does not disturb what is typed. */
 function showDialog() {
+  if (dialogOpen) return;
   dialogOpen = true;
+
+  // The default is a placeholder rather than a value: confirming without typing
+  // has to be the fast path, and the grey digits say which port that will be.
+  const input = el("port-input");
+  input.value = "";
+  input.placeholder = shell?.default_port ? String(shell.default_port) : "";
+  setPortError("");
+  setPortHint();
+
+  renderDialog();
+  el("dialog").classList.remove("hidden");
+  input.focus();
+}
+
+/** Re-render everything in the dialog that is derived from state. */
+function renderDialog() {
   const report = update?.report;
   el("current-version").textContent = report?.current || shell?.current_version || "—";
-  el("dsh-location").textContent = shell?.url || "—";
-
+  // The resolved launcher. This line used to show the loopback URL, which is not
+  // where dsh is installed.
+  el("dsh-location").textContent = shell?.dsh_bin || "—";
   if (update?.error) showInlineError(`更新检查失败：${update.error}`);
   else el("check-error").classList.add("hidden");
-
-  // The popup is about the candidate — the newest version on a track at least
-  // as stable as the installed one. That is also what the checkbox silences.
-  dismissTarget = report?.candidate?.version || null;
-  selected = dismissTarget;
   el("dismiss-target").textContent = dismissTarget || "—";
-  el("dismiss-check").checked = false;
-
   renderChannels();
   updateButtons();
-  el("dialog").classList.remove("hidden");
+}
+
+/**
+ * Take a fresh update payload.
+ *
+ * The candidate is only adopted when the user has not already chosen one, so a
+ * payload that lands while they are reading does not move the selection under
+ * them. A recheck clears the choice first, so a recheck does adopt.
+ */
+function adoptUpdate(payload) {
+  update = payload;
+  updateSettled = true;
+  if (!dismissTarget) {
+    dismissTarget = payload?.report?.candidate?.version || null;
+    selected = dismissTarget;
+    el("dismiss-check").checked = false;
+  }
+  renderDialog();
+}
+
+// ── the port choice ────────────────────────────────────────────────────────
+
+/** The port the field will use: what was typed, else the greyed default. */
+function chosenPort() {
+  const typed = el("port-input").value.trim();
+  const raw = typed === "" ? String(shell?.default_port ?? "") : typed;
+  const port = Number.parseInt(raw, 10);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+/** Say what the port in the field will do, as far as that is knowable yet. */
+function setPortHint(kind, port) {
+  const hint = el("port-hint");
+  const target = port ?? chosenPort();
+  if (kind === "reuse") {
+    hint.textContent = `端口 ${target} 上已有 dsh 服务，将直接复用。`;
+    return;
+  }
+  if (kind === "start") {
+    hint.textContent = shell?.running_port
+      ? `将在端口 ${target} 上再启动一个实例；端口 ${shell.running_port} 上的服务保持不动。`
+      : `将在端口 ${target} 上启动 dsh 服务。`;
+    return;
+  }
+  hint.textContent = shell?.running_port
+    ? `端口 ${shell.running_port} 已有服务，留空即复用它；填别的端口会另起一个实例。`
+    : shell?.default_port
+      ? `留空即在端口 ${shell.default_port} 启动；灰色数字是默认值。`
+      : "留空即自动选择端口。";
+}
+
+/** Show or clear the port error line. */
+function setPortError(message) {
+  const box = el("port-error");
+  if (!message) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.textContent = message;
+  box.classList.remove("hidden");
+}
+
+/**
+ * Confirm the port, then start.
+ *
+ * The port is checked first, so one that something else owns is answered inside
+ * the dialog instead of after a server boot that was never going to work.
+ */
+async function confirmAndStart() {
+  const button = el("btn-open");
+  setPortError("");
+  const port = chosenPort();
+  if (port === null) {
+    setPortError("请输入 1–65535 之间的端口。");
+    return;
+  }
+
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "检查端口…";
+  let verdict;
+  try {
+    verdict = await invoke("check_port", { port });
+  } catch (failure) {
+    setPortError(`无法检查端口：${failure}`);
+    return;
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+
+  if (verdict.kind === "occupied") {
+    setPortError(`端口 ${port} 已被其他程序占用，换一个或留空。`);
+    return;
+  }
+  if (verdict.kind === "foreign") {
+    // Not "occupied": a dsh is there, it just is not one this machine can enter
+    // — a Windows-side instance seen from WSL, or one started under another
+    // DSH_HOME. Saying so avoids "that's my dsh!" being answered with "no".
+    setPortError(
+      `端口 ${port} 上有一个 dsh 服务，但它的会话不在本机（例如在 Windows 侧或用另一个 DSH_HOME 启动的），无法复用。` +
+        "换一个端口，或先停掉它。",
+    );
+    return;
+  }
+  if (verdict.kind === "too-low") {
+    setPortError(`端口 ${port} 低于 1024，普通用户无法绑定。`);
+    return;
+  }
+
+  // The update question lives in this dialog now, so it is answered here too.
+  if (el("dismiss-check").checked && dismissTarget) {
+    try {
+      await invoke("dismiss_version", { version: dismissTarget });
+    } catch (failure) {
+      showInlineError(String(failure));
+      return;
+    }
+  }
+
+  setPortHint(verdict.kind, port);
+  dialogOpen = false;
+  starting = true;
+  el("dialog").classList.add("hidden");
+  el("splash-message").textContent = `正在端口 ${port} 启动 dsh 服务…`;
+  try {
+    // Returns as soon as the work is under way; the outcome arrives as an event.
+    await invoke("start_server", { port });
+  } catch (failure) {
+    reportFailure("start_server", failure);
+    starting = false;
+    shell = { ...(shell || {}), phase: "failed", error: `无法启动 dsh 服务：${failure}` };
+    renderFailure();
+  }
 }
 
 // ── flow ───────────────────────────────────────────────────────────────────
@@ -287,26 +436,27 @@ function applySnapshot(state) {
   }
   renderSplash();
   if (state.update || state.update_error) {
-    update = {
+    adoptUpdate({
       current: state.current_version || "",
       report: state.update || null,
       error: state.update_error || null,
       should_prompt: Boolean(state.update?.candidate && !state.update?.candidate_dismissed),
-    };
-    updateSettled = true;
+    });
   }
 }
 
-/** Hand over as soon as the server is up and the update question is answered. */
+/** React to a snapshot: offer the choice, or hand over once a session exists. */
 function decide() {
-  if (navigated || dialogOpen) return;
-  if (!shell || shell.phase !== "ready") return;
-  if (!updateSettled) return;
-  if (update?.should_prompt) {
-    showDialog();
+  if (navigated || !shell) return;
+  if (shell.phase === "choosing") {
+    // `starting` guards the window between confirming and Rust moving the phase
+    // on: a status snapshot from before that must not re-open the dialog.
+    if (!starting) showDialog();
     return;
   }
-  goToDsh();
+  if (shell.phase === "ready") {
+    goToDsh();
+  }
 }
 
 /**
@@ -318,10 +468,11 @@ function decide() {
  */
 async function attachListeners() {
   const handlers = [
-    ["shell://status", (event) => { shell = event.payload; renderSplash(); }],
+    ["shell://status", (event) => { shell = event.payload; renderSplash(); decide(); }],
+    ["shell://choose", (event) => { shell = event.payload; renderSplash(); decide(); }],
     ["shell://ready", (event) => { shell = event.payload; decide(); }],
     ["shell://error", (event) => { shell = event.payload; renderFailure(); }],
-    ["shell://update", (event) => { update = event.payload; updateSettled = true; decide(); }],
+    ["shell://update", (event) => adoptUpdate(event.payload)],
   ];
   try {
     for (const [name, handler] of handlers) await listen(name, handler);
@@ -346,18 +497,7 @@ function startPolling() {
 
 // ── wiring ─────────────────────────────────────────────────────────────────
 
-el("btn-later").addEventListener("click", async () => {
-  if (el("dismiss-check").checked && dismissTarget) {
-    try {
-      await invoke("dismiss_version", { version: dismissTarget });
-    } catch (error) {
-      showInlineError(String(error));
-      return;
-    }
-  }
-  el("dialog").classList.add("hidden");
-  goToDsh();
-});
+el("btn-open").addEventListener("click", confirmAndStart);
 
 el("btn-update").addEventListener("click", async () => {
   if (!selected) return;
@@ -377,19 +517,12 @@ el("btn-recheck").addEventListener("click", async () => {
   button.disabled = true;
   button.textContent = "检查中…";
   try {
-    const payload = await invoke("check_updates");
-    update = payload;
-    updateSettled = true;
-    dismissTarget = payload.report?.candidate?.version || null;
-    selected = dismissTarget;
-    el("dismiss-target").textContent = dismissTarget || "—";
-    if (payload.error || !payload.report) {
-      renderChannels();
-      updateButtons();
-    } else {
-      showDialog();
-    }
-    if (payload.error) showInlineError(`更新检查失败：${payload.error}`);
+    // A recheck is a fresh question, so it is allowed to replace the candidate
+    // and to clear the checkbox that silences it.
+    dismissTarget = null;
+    updateSettled = false;
+    renderDialog();
+    adoptUpdate(await invoke("check_updates"));
   } catch (error) {
     showInlineError(String(error));
   } finally {
