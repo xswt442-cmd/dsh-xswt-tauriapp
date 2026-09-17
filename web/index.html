@@ -10,7 +10,11 @@
     <!-- ── splash ───────────────────────────────────────────────────────── -->
     <main id="splash" class="stage">
       <div class="brand">
-        <div class="brand-mark">DSH</div>
+        <!-- The project's own icon. `web/whale.png` is `icons/128x128@2x.png`
+             with the glyph's enclosed transparent regions filled: its eye patch
+             and belly are cut out, so on this background the raw file reads as a
+             plain pink blob. -->
+        <div class="brand-mark"><img src="whale.png" alt="DeepSeek Harness" /></div>
         <h1>DeepSeek Harness</h1>
         <p id="splash-message" class="muted">正在启动…</p>
         <div class="spinner" role="status" aria-live="polite"></div>
@@ -33,16 +37,22 @@
       </div>
     </main>
 
-    <!-- ── launch dialog: choose a port, and see any update ─────────────── -->
-    <div id="dialog" class="overlay hidden">
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    <!-- ── launch dialog: choose a port, and see any update ───────────────
+         A stage of its own rather than a modal over the splash. It is the
+         window's usual content, so laying it over the splash only ever produced
+         a large dark field with the brand hidden behind it. -->
+    <main id="dialog" class="stage hidden">
+      <section class="dialog" role="dialog" aria-labelledby="dialog-title">
         <header class="dialog-head">
-          <div>
-            <h2 id="dialog-title">启动 dsh</h2>
-            <p class="muted small">
-              当前版本 <code id="current-version">—</code> ·
-              已安装于 <code id="dsh-location">—</code>
-            </p>
+          <div class="dialog-title">
+            <div class="brand-mark small" aria-hidden="true"><img src="whale.png" alt="" /></div>
+            <div>
+              <h2 id="dialog-title">启动 dsh</h2>
+              <p class="muted small">
+                当前版本 <code id="current-version">—</code> ·
+                已安装于 <code id="dsh-location">—</code>
+              </p>
+            </div>
           </div>
           <button id="btn-recheck" class="ghost small">重新检查</button>
         </header>
@@ -86,7 +96,7 @@
           <span id="progress-text">正在更新…</span>
         </div>
       </section>
-    </div>
+    </main>
 
     <script type="module" src="main.js"></script>
   </body>

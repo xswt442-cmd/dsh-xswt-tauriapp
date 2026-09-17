@@ -119,9 +119,16 @@ function renderSplash() {
   el("splash-message").textContent = shell.message || "正在启动…";
 }
 
+/** Show exactly one of the shell's three stages. */
+function showStage(name) {
+  for (const id of ["splash", "dialog", "failure"]) {
+    el(id).classList.toggle("hidden", id !== name);
+  }
+}
+
 function renderFailure() {
-  el("splash").classList.add("hidden");
-  el("failure").classList.remove("hidden");
+  dialogOpen = false;
+  showStage("failure");
   el("failure-message").textContent = shell?.error || "未知错误";
   el("failure-logdir").textContent = shell?.log_dir || "~/.dsh/launcher/logs";
 }
@@ -250,7 +257,7 @@ function showDialog() {
   setPortHint();
 
   renderDialog();
-  el("dialog").classList.remove("hidden");
+  showStage("dialog");
   input.focus();
 }
 
@@ -389,7 +396,8 @@ async function confirmAndStart() {
   setPortHint(verdict.kind, port);
   dialogOpen = false;
   starting = true;
-  el("dialog").classList.add("hidden");
+  // Back to the splash: it carries the progress line while the server boots.
+  showStage("splash");
   el("splash-message").textContent = `正在端口 ${port} 启动 dsh 服务…`;
   try {
     // Returns as soon as the work is under way; the outcome arrives as an event.
@@ -419,8 +427,6 @@ async function goToDsh() {
     // whether the app is usable at all, and a packaged GUI has no terminal.
     reportFailure("open_dsh", error);
     navigated = false;
-    dialogOpen = false;
-    el("dialog").classList.add("hidden");
     shell = { ...(shell || {}), phase: "failed", error: `无法载入 dsh 界面：${error}` };
     renderFailure();
   }
@@ -445,9 +451,18 @@ function applySnapshot(state) {
   }
 }
 
-/** React to a snapshot: offer the choice, or hand over once a session exists. */
+/**
+ * React to a snapshot: pick the stage, or hand over once a session exists.
+ *
+ * One place decides which of the three is on screen, so the stages can never
+ * stack up on each other.
+ */
 function decide() {
   if (navigated || !shell) return;
+  if (shell.phase === "failed") {
+    showStage("failure");
+    return;
+  }
   if (shell.phase === "choosing") {
     // `starting` guards the window between confirming and Rust moving the phase
     // on: a status snapshot from before that must not re-open the dialog.
@@ -456,7 +471,11 @@ function decide() {
   }
   if (shell.phase === "ready") {
     goToDsh();
+    return;
   }
+  // Starting: the splash carries the progress line. Not while the dialog is up,
+  // which only happens if an older status snapshot arrives late.
+  if (!dialogOpen) showStage("splash");
 }
 
 /**

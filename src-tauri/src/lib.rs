@@ -59,11 +59,16 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
         WebviewUrl::App("index.html".into()),
     )
     .title("DeepSeek Harness（外壳）")
-    .inner_size(860.0, 660.0)
-    .min_inner_size(560.0, 420.0)
+    // Sized for the dialog, which is what this window now shows: it used to be
+    // sized for a splash that the dialog then covered.
+    .inner_size(960.0, 730.0)
+    .min_inner_size(640.0, 520.0)
     .center()
     .resizable(true)
-    .background_color(tauri::window::Color(0x14, 0x14, 0x14, 0xff))
+    // The frame before the page paints. Slightly lifted towards the page's own
+    // glow, so the hand-over from the OS fill to the rendered gradient is not a
+    // visible step.
+    .background_color(tauri::window::Color(0x17, 0x1b, 0x28, 0xff))
     .on_navigation(|url| {
         // The page is local; anything else is a link out.
         if guest::is_internal(url) {
