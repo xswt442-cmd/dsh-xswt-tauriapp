@@ -28,6 +28,16 @@ A lightweight Tauri desktop shell for DeepSeek Harness — more precisely, a **d
 
 ## Getting it
 
+### From the plugin market
+
+The [marketplace](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) entry points at `dsh-xswt-tauriapp-plugin.tgz`, which every release of this repository carries. It is an installer stub rather than the application itself (source: [`plugins/dsh-desktop-app/`](plugins/dsh-desktop-app/README.md)):
+
+```sh
+dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
+```
+
+On the **first** dsh start after installing it, the stub reads this repository's latest release, picks the installer for this platform, fetches `SHA256SUMS` and only writes the file once its digest matches, then hands it to the system installer. A machine that already has the shell, or one with no desktop session (CI, or Linux without `DISPLAY`), is only told where to look. It installs nothing silently and imports no harness API — no tool, no UI, no dsh internal — so it cannot become the reason a harness fails to start.
+
 ### From a release
 
 Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage,
@@ -157,11 +167,14 @@ That the first navigation carries the `SameSite=Strict` cookie has been measured
 ```sh
 cargo test --manifest-path crates/dsh-core/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib
+node --test plugins/dsh-desktop-app/test/plugin.test.js
 node scripts/check-docs.mjs
 cargo run --example launch --manifest-path crates/dsh-core/Cargo.toml
 ```
 
 `crates/dsh-core` has no GUI dependency, so it builds and tests on a machine without `libwebkit2gtk`. `examples/launch.rs` brings a real server up through the same code path the shell uses and prints the prepared session (`url=` and `cookie=`); compat CI uses it to verify the handshake and to pin the fact that the token stays out of the URL.
+
+The marketplace stub in `plugins/dsh-desktop-app/` is a dependency-free Node module, and every case in its suite runs against a stand-in release server on loopback: nothing reaches GitHub, and `DSH_TAURIAPP_NO_OPEN=1` stops each run at the point where it would have handed the file over.
 
 ## License
 

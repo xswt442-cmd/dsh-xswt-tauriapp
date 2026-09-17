@@ -59,10 +59,13 @@ jobs:
           conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
           app="$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)"
           core="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/dsh-core/Cargo.toml | head -n1)"
-          # Both crates carry the repository version: the core crate is not
-          # published on its own, so a second version line would only ever drift.
+          stub="$(node -p "require('./plugins/dsh-desktop-app/package.json').version")"
+          # Everything carries the repository version: neither crate is published
+          # on its own, and the stub only ever runs beside the release it shipped
+          # with, so a second version line would only ever drift.
           for pair in "package.json:$pkg" "src-tauri/tauri.conf.json:$conf" \
-                      "src-tauri/Cargo.toml:$app" "crates/dsh-core/Cargo.toml:$core"; do
+                      "src-tauri/Cargo.toml:$app" "crates/dsh-core/Cargo.toml:$core" \
+                      "plugins/dsh-desktop-app/package.json:$stub"; do
             name="${pair%%:*}"
             value="${pair#*:}"
             if [ "$value" != "$tag" ]; then
@@ -70,13 +73,73 @@ jobs:
               exit 1
             fi
           done
-          echo "all four version fields agree on $tag"
+          echo "all five version fields agree on $tag"
 
       - name: tests
         run: |
           cargo test --manifest-path crates/dsh-core/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml --lib
+          node --test plugins/dsh-desktop-app/test/plugin.test.js
           node scripts/check-docs.mjs
+
+  # The marketplace entry points at the asset this job builds, so it is packed
+  # once here rather than in a bundle leg. The asset name carries no version on
+  # purpose: `releases/latest/download/<name>` resolves `latest` at request time
+  # but takes the filename literally, so a versioned name would 404 the moment
+  # the next tag was cut — and nobody would notice, least of all here.
+  stub:
+    name: pack the marketplace stub
+    needs: verify
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: tests
+        run: node --test plugins/dsh-desktop-app/test/plugin.test.js
+
+      - name: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # `npm pack` names the tarball after the package and its version; the
+          # release asset is renamed to the version-free name the listing uses.
+          npm pack ./plugins/dsh-desktop-app --pack-destination dist
+          mv dist/dsh-xswt-tauriapp-plugin-*.tgz dist/dsh-xswt-tauriapp-plugin.tgz
+          ls -l dist
+
+      # The listing contract in one assertion: what a storefront downloads must
+      # declare `dsh.bundle` and carry the patch it names, or `dsh plugin add`
+      # installs a package the harness then refuses to load.
+      - name: the tarball is what the market promises
+        shell: bash
+        run: |
+          set -euo pipefail
+          contents="$RUNNER_TEMP/tarball-contents"
+          tar -tzf dist/dsh-xswt-tauriapp-plugin.tgz | sort > "$contents"
+          cat "$contents"
+          for path in package/package.json package/cordis.patch.yml package/lib/index.js package/README.md; do
+            grep -qx "$path" "$contents" || { echo "::error::$path is missing from the tarball"; exit 1; }
+          done
+          tar -xzOf dist/dsh-xswt-tauriapp-plugin.tgz package/package.json > "$RUNNER_TEMP/tarball-manifest.json"
+          node -e '
+            const manifest = require(process.argv[1]);
+            const declared = manifest.dsh && manifest.dsh.bundle && manifest.dsh.bundle.patch;
+            if (declared !== "./cordis.patch.yml") {
+              throw new Error("package.json declares " + JSON.stringify(declared) + " instead of ./cordis.patch.yml");
+            }
+            console.log("market contract holds:", manifest.name, manifest.version, declared);
+          ' "$RUNNER_TEMP/tarball-manifest.json"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: plugin-tarball
+          path: dist/dsh-xswt-tauriapp-plugin.tgz
+          if-no-files-found: error
 
   build:
     name: bundle ${{ matrix.artifact }}
@@ -163,7 +226,7 @@ jobs:
 
   release:
     name: publish the release
-    needs: build
+    needs: [build, stub]
     runs-on: ubuntu-22.04
     permissions:
       contents: write # create the release and attach assets
@@ -174,6 +237,13 @@ jobs:
         with:
           pattern: bundles-*
           merge-multiple: true
+          path: dist
+
+      # The marketplace stub: not an installer, but an asset of this release all
+      # the same — the listing's `tarball:` field points at this exact path.
+      - uses: actions/download-artifact@v7
+        with:
+          name: plugin-tarball
           path: dist
 
       - name: checksums
@@ -217,6 +287,9 @@ jobs:
             echo '`xattr -dr com.apple.quarantine /Applications/dsh-xswt-tauriapp.app`。'
             echo
             echo '下载后可用 `sha256sum -c SHA256SUMS` 校验完整性。'
+            echo
+            echo "插件市场入口（不是安装包本体）：\`dsh-xswt-tauriapp-plugin.tgz\`，"
+            echo "装着它，首次启动 dsh 时会自动下载并校验上面那份本平台安装包。"
             echo
             echo '---'
             echo

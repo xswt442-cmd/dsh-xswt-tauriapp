@@ -61,6 +61,11 @@ jobs:
       - name: frontend syntax
         run: node --input-type=module --check < web/main.js
 
+      # The marketplace stub tests itself against a stand-in release server on
+      # loopback, so no leg here needs network access to GitHub.
+      - name: marketplace stub tests
+        run: node --test plugins/dsh-desktop-app/test/plugin.test.js
+
       - name: bilingual docs
         run: node scripts/check-docs.mjs
 

@@ -10,6 +10,8 @@ commit into `main`. Only release-ready changes belong on `main`.
    - `src-tauri/Cargo.toml#version`
    - `crates/dsh-core/Cargo.toml#version`
    - `src-tauri/tauri.conf.json#version`
+   - `plugins/dsh-desktop-app/package.json#version` (the marketplace stub ships
+     with the release it installs, so the tag contract covers it too)
    - the first section of both changelogs: `## X.Y.Z - YYYY-MM-DD`
    - the deb example in both READMEs: `dsh-xswt-tauriapp_X.Y.Z_amd64.deb`
    - both `Cargo.lock` files, which any cargo command rewrites to match — check
@@ -19,6 +21,7 @@ commit into `main`. Only release-ready changes belong on `main`.
    ```sh
    cargo test   --manifest-path crates/dsh-core/Cargo.toml
    cargo test   --manifest-path src-tauri/Cargo.toml --lib
+   node --test  plugins/dsh-desktop-app/test/plugin.test.js
    cargo fmt    --manifest-path crates/dsh-core/Cargo.toml --check
    cargo fmt    --manifest-path src-tauri/Cargo.toml --check
    cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings
@@ -42,7 +45,24 @@ commit into `main`. Only release-ready changes belong on `main`.
    git push origin vX.Y.Z
    ```
 
-The release workflow validates that the tag matches all three version fields,
-rebuilds the deb and AppImage, and creates — or refreshes — the GitHub release
-with those artifacts and the notes taken from `CHANGELOG.md`. Tags are not
-moved; cut a new patch release instead.
+The release workflow validates that the tag matches all five version fields,
+rebuilds the deb and AppImage, packs the marketplace stub, and creates — or
+refreshes — the GitHub release with those artifacts and the notes taken from
+`CHANGELOG.md`. Tags are not moved; cut a new patch release instead.
+
+## The marketplace asset
+
+`stub` packs `plugins/dsh-desktop-app/` with `npm pack` and attaches it as
+`dsh-xswt-tauriapp-plugin.tgz`. That asset is what the
+[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+entry points at, through a version-free name:
+
+```
+https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
+```
+
+Two things follow from that URL. The name must stay version-free, because
+`latest/download/` resolves only `latest` and takes the filename literally. And
+the entry can only be submitted once some release already carries the asset, so
+the stub ships in the release *before* the listing PR — a PR pointing at an asset
+that does not exist yet sends reviewers to a 404.

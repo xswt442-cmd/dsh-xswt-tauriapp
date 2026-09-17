@@ -1,0 +1,17 @@
+# The dsh-xswt-tauriapp bundle patch: one insert over the empty profile root.
+#
+# The plugin owns nothing inside the harness, so there is no row to override and
+# nothing to disable — it is a boot-time installer stub and the whole of it is
+# the download it performs on the first start after installation.
+#
+# `mode` is `auto` (download and hand the installer to the system), `notice`
+# (print the release page instead) or `off` (say nothing). `DSH_TAURIAPP_MODE`
+# in dsh's environment wins over this file, which is how a machine that should
+# never download anything opts out without editing its profile.
+
+- insert:
+    - id: dsh-xswt-tauriapp
+      name: dsh-xswt-tauriapp-plugin
+      config:
+        mode: auto
+        open: true

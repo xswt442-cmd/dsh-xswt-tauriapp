@@ -63,7 +63,20 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   inequality — which would offer the running build back as an update. An installer
   is only handed to the OS after its published `SHA256SUMS` matches; a release
   without checksums is refused.
-- Keep the four version fields equal and each README/CHANGELOG pair in sync.
+- `plugins/dsh-desktop-app/` is the marketplace stub and is deliberately the
+  opposite of everything above: no `@deepseek-ai/*` import, no tool, no client row,
+  no window, nothing that can be observed by dsh at all. It imports Node built-ins
+  only, so a harness change cannot break it and it cannot become the reason a
+  harness fails to boot. It downloads an installer, verifies it against
+  `SHA256SUMS` **before writing it**, and hands it to the platform opener — it never
+  installs anything and never runs an installer silently, because SmartScreen,
+  Gatekeeper and a distribution's root/dependency questions are the platform's to
+  ask. Its state is one file under `$DSH_HOME` so the first start does the work and
+  every later start stays quiet; the release asset it is fetched through must stay
+  version-free, since `releases/latest/download/<name>` takes the filename literally.
+- Keep the five version fields equal and each README/CHANGELOG pair in sync. The
+  changelog must carry exactly one `## Unreleased` section: `release-notes.mjs`
+  takes the first match and would silently drop the rest.
 - Icons come from `tauri icon`; changing `src-tauri/icons/` does not rebuild the exe,
   so touch `src-tauri/build.rs` first.
 - `web/whale.png` is an unmodified copy of `src-tauri/icons/128x128@2x.png` (only
@@ -84,6 +97,7 @@ cargo fmt    --manifest-path crates/dsh-core/Cargo.toml --check
 cargo fmt    --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+node --test  plugins/dsh-desktop-app/test/plugin.test.js
 node scripts/check-docs.mjs
 ```
 

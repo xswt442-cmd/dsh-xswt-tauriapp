@@ -28,6 +28,16 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳 —— 更准确地说，是 dsh �
 
 ## 获取
 
+### 从插件市场安装
+
+插件市场（[awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)）的条目指向本仓库每个 release 里附带的 `dsh-xswt-tauriapp-plugin.tgz`。那是安装引导，不是安装包本体（源码在 [`plugins/dsh-desktop-app/`](plugins/dsh-desktop-app/README.md)）：
+
+```sh
+dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
+```
+
+装上之后，**首次**启动 dsh 会去读本仓库最新 release，按平台挑出对应的安装包，先取 `SHA256SUMS`、校验通过才落盘，再交给系统安装器打开；已经装好外壳的机器、没有桌面会话的机器（CI，或 Linux 上没有 `DISPLAY`）只会打印一句说明。它不静默安装，也不导入任何 harness API —— 不注册工具、不注入界面、不读 dsh 内部结构，因此不会成为 dsh 启动失败的原因。
+
 ### 使用 Release 产物
 
 每个 release 附带 Windows 安装包、macOS dmg、deb、rpm 与 AppImage，并附 `SHA256SUMS`。
@@ -160,11 +170,14 @@ Linux 上还有一个前提：`global-hotkey` 通过 X11 抓键，而 **Wayland 
 ```sh
 cargo test --manifest-path crates/dsh-core/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib
+node --test plugins/dsh-desktop-app/test/plugin.test.js
 node scripts/check-docs.mjs
 cargo run --example launch --manifest-path crates/dsh-core/Cargo.toml
 ```
 
 `crates/dsh-core` 不依赖 GUI 工具链，可在没有 `libwebkit2gtk` 的环境中独立构建与测试。`examples/launch.rs` 以与外壳相同的代码路径启动真实服务，并输出准备好的会话（`url=` 与 `cookie=`）；compat CI 用它验证握手并把 token 不进入 URL 这件事钉住。
+
+`plugins/dsh-desktop-app/` 的市场引导插件是零依赖的纯 Node 模块，测试全部跑在本机回环的替身发布服务器上：不访问 GitHub，也不打开任何安装包（`DSH_TAURIAPP_NO_OPEN=1` 让它停在「即将交给系统」的那一刻）。
 
 ## License
 
