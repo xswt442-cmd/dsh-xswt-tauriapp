@@ -385,6 +385,25 @@ button.ghost:hover {
   padding: 8px 2px;
 }
 
+/* ── the shell's own update ────────────────────────────────────────────── */
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #4d6bfe1a;
+  border: 1px solid #4d6bfe55;
+  border-radius: 9px;
+  padding: 8px 12px;
+  margin: 0 0 14px;
+}
+
+.notice .row {
+  gap: 8px;
+}
+
 /* ── the port choice ───────────────────────────────────────────────────── */
 
 .port {

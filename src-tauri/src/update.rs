@@ -7,12 +7,12 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use dsh_xswt_tauriapp_core::{server, updates};
+use dsh_xswt_tauriapp_core::{self_update, server, updates};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::shell_log;
-use crate::state::{SharedShell, EVENT_UPDATE};
+use crate::state::{SharedShell, EVENT_SELF_UPDATE, EVENT_UPDATE};
 
 /// Result of one update check, as delivered to the bootstrap page.
 #[derive(Debug, Clone, Serialize, Default)]
@@ -71,6 +71,133 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
     );
     let _ = app.emit(EVENT_UPDATE, payload.clone());
     payload
+}
+
+/// Result of checking whether *this application* has a newer build.
+///
+/// Separate from [`UpdatePayload`], which is about dsh: the two share a dialog
+/// but nothing else, and a page that mixed them would offer the wrong restart.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct SelfUpdatePayload {
+    /// The version this build is.
+    pub current: String,
+    /// The newer version, when there is one.
+    pub version: Option<String>,
+    /// Why the check failed, when it did.
+    pub error: Option<String>,
+    /// Whether this machine has an installer to hand over, rather than only a
+    /// page to read.
+    pub can_install: bool,
+    /// Whether the launch notice should appear.
+    pub should_prompt: bool,
+}
+
+/// The version of this build.
+///
+/// Read from the crate rather than from `tauri.conf.json`: they are kept equal
+/// by the release checklist, and the compiled-in value is the one actually
+/// running.
+pub fn shell_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Ask GitHub whether this application has a newer release.
+///
+/// Advisory throughout: a rate-limited API, an offline machine or a release
+/// with nothing installable all end in "no prompt" rather than a failed launch.
+pub fn refresh_self(app: &AppHandle, shell: &SharedShell) -> SelfUpdatePayload {
+    let current = shell_version();
+    let payload = match self_update::check(&current) {
+        Ok(Some(available)) => {
+            let dismissed = shell
+                .lock()
+                .map(|guard| guard.self_dismiss.is_dismissed(&available.version))
+                .unwrap_or(false);
+            let can_install = available.installer.is_some();
+            let version = available.version.clone();
+            if let Ok(mut guard) = shell.lock() {
+                guard.self_pending = Some(available);
+                guard.state.self_update = Some(SelfUpdatePayload {
+                    current: current.clone(),
+                    version: Some(version.clone()),
+                    error: None,
+                    can_install,
+                    should_prompt: !dismissed,
+                });
+            }
+            shell_log!(
+                "[dsh-harness] self update: {current} -> {version} (installer: {can_install}, dismissed: {dismissed})"
+            );
+            shell
+                .lock()
+                .ok()
+                .and_then(|guard| guard.state.self_update.clone())
+                .unwrap_or_default()
+        }
+        Ok(None) => {
+            shell_log!("[dsh-harness] self update: {current} is the newest release");
+            if let Ok(mut guard) = shell.lock() {
+                guard.self_pending = None;
+                guard.state.self_update = Some(SelfUpdatePayload {
+                    current: current.clone(),
+                    ..Default::default()
+                });
+            }
+            SelfUpdatePayload {
+                current,
+                ..Default::default()
+            }
+        }
+        Err(error) => {
+            // Never surfaced as a failure: not knowing about an update is not a
+            // reason to bother anyone.
+            shell_log!("[dsh-harness] self update check failed: {error}");
+            if let Ok(mut guard) = shell.lock() {
+                guard.state.self_update = Some(SelfUpdatePayload {
+                    current: current.clone(),
+                    error: Some(error.clone()),
+                    ..Default::default()
+                });
+            }
+            SelfUpdatePayload {
+                current,
+                error: Some(error),
+                ..Default::default()
+            }
+        }
+    };
+    let _ = app.emit(EVENT_SELF_UPDATE, payload.clone());
+    payload
+}
+
+/// Download this machine's installer, verify it, and hand it to the system.
+///
+/// Falls back to opening the release page when the release carries nothing this
+/// machine can install. Returns what it did, for the page to show.
+pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
+    let pending = shell
+        .lock()
+        .map_err(|_| "状态锁不可用".to_string())?
+        .self_pending
+        .clone()
+        .ok_or_else(|| "当前没有待安装的外壳更新。".to_string())?;
+
+    let Some(installer) = pending.installer.as_ref() else {
+        crate::guest::open_external(&pending.page);
+        return Ok("已打开发布页。".to_string());
+    };
+
+    let directory = std::env::temp_dir()
+        .join("dsh-xswt-tauriapp")
+        .join("updates");
+    let path = self_update::download_installer(installer, pending.checksums.as_ref(), &directory)?;
+    shell_log!(
+        "[dsh-harness] self update: verified {} at {}",
+        installer.name,
+        path.display()
+    );
+    crate::guest::open_external(&path.display().to_string());
+    Ok(format!("已下载并校验 {}，安装程序已打开。", installer.name))
 }
 
 /// The `npm` that owns the dsh this shell is actually running against.

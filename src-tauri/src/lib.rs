@@ -105,6 +105,18 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         .as_ref()
         .map(server::PortMemory::load)
         .unwrap_or_default();
+
+    // A second store, not a second entry in the first one: "don't remind me
+    // about dsh 0.1.5-rc.2" must not silence an update to this application.
+    let self_dismiss_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("dismissed-shell-updates.json"));
+    let self_dismiss = self_dismiss_path
+        .as_ref()
+        .map(updates::DismissStore::load)
+        .unwrap_or_default();
     shell_log!(
         "[dsh-harness] dismiss store {} -> {:?}",
         dismiss_path
@@ -122,11 +134,13 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
             // Resolved once here rather than per check: the dialog's "installed
             // at" line used to show the loopback URL, which is not where dsh is.
             dsh_bin: server::resolve_dsh_bin().map(|path| path.display().to_string()),
+            shell_version: Some(update::shell_version()),
             ..Default::default()
         },
         store,
         dismiss_path,
         port_memory,
+        self_dismiss,
         ..Default::default()
     }))
 }
@@ -200,6 +214,9 @@ pub fn run() {
             commands::page_diag,
             commands::check_updates,
             commands::dismiss_version,
+            commands::check_self_update,
+            commands::dismiss_self_version,
+            commands::apply_self_update,
             commands::clear_dismissed,
             commands::dismissed_versions,
             commands::apply_update,

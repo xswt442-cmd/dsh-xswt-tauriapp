@@ -28,6 +28,12 @@ pub fn discover(app: AppHandle, shell: SharedShell) {
     let update_shell = shell.clone();
     std::thread::spawn(move || update::refresh(&update_app, &update_shell));
 
+    // This application's own release is a second, independent question with its
+    // own source, so it is asked in parallel rather than after the first answer.
+    let self_app = app.clone();
+    let self_shell = shell.clone();
+    std::thread::spawn(move || update::refresh_self(&self_app, &self_shell));
+
     let last_chosen = shell.lock().ok().and_then(|guard| guard.port_memory.last);
     let plan = match server::plan(last_chosen) {
         Ok(plan) => plan,

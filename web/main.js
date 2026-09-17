@@ -15,8 +15,10 @@ const el = (id) => document.getElementById(id);
 
 /** Latest state snapshot pushed by the shell. */
 let shell = null;
-/** Latest update payload. */
+/** Latest dsh update payload. */
 let update = null;
+/** Latest self-update payload — about this application, not about dsh. */
+let selfUpdate = null;
 /** Whether an update check has finished (successfully or not). */
 let updateSettled = false;
 /** Version currently highlighted in the dialog. */
@@ -243,6 +245,33 @@ function updateButtons() {
   button.textContent = runnable ? `更新到 ${selected} 并重启` : "更新并重启";
 }
 
+/**
+ * Render the shell's own update line.
+ *
+ * Called whenever the payload arrives or the user dismisses a version; it also
+ * fills the header's version, which is the only place this build's own version
+ * is named.
+ */
+function renderSelfUpdate() {
+  const current = selfUpdate?.current || shell?.shell_version || "";
+  el("shell-version").textContent = current || "—";
+
+  const box = el("self-update");
+  const version = selfUpdate?.version;
+  if (!version || !selfUpdate?.should_prompt) {
+    box.classList.add("hidden");
+    return;
+  }
+
+  el("self-update-text").textContent = `外壳有新版本 ${version}（当前 ${current}）`;
+  const button = el("btn-self-update");
+  button.textContent = selfUpdate.can_install ? "下载并安装" : "打开发布页";
+  button.disabled = false;
+  button.classList.remove("hidden");
+  el("btn-self-dismiss").classList.remove("hidden");
+  box.classList.remove("hidden");
+}
+
 /** Open the launch dialog. Re-opening it does not disturb what is typed. */
 function showDialog() {
   if (dialogOpen) return;
@@ -257,6 +286,7 @@ function showDialog() {
   setPortHint();
 
   renderDialog();
+  renderSelfUpdate();
   showStage("dialog");
   input.focus();
 }
@@ -441,6 +471,10 @@ function applySnapshot(state) {
     return;
   }
   renderSplash();
+  if (state.self_update) {
+    selfUpdate = state.self_update;
+    renderSelfUpdate();
+  }
   if (state.update || state.update_error) {
     adoptUpdate({
       current: state.current_version || "",
@@ -492,6 +526,7 @@ async function attachListeners() {
     ["shell://ready", (event) => { shell = event.payload; decide(); }],
     ["shell://error", (event) => { shell = event.payload; renderFailure(); }],
     ["shell://update", (event) => adoptUpdate(event.payload)],
+    ["shell://self-update", (event) => { selfUpdate = event.payload; renderSelfUpdate(); }],
   ];
   try {
     for (const [name, handler] of handlers) await listen(name, handler);
@@ -547,6 +582,36 @@ el("btn-recheck").addEventListener("click", async () => {
   } finally {
     button.disabled = false;
     button.textContent = "重新检查";
+  }
+});
+
+el("btn-self-update").addEventListener("click", async () => {
+  const button = el("btn-self-update");
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在下载…";
+  try {
+    // Verified against the release's SHA256SUMS before it is opened.
+    el("self-update-text").textContent = await invoke("apply_self_update");
+    button.classList.add("hidden");
+    el("btn-self-dismiss").classList.add("hidden");
+  } catch (failure) {
+    reportFailure("apply_self_update", failure);
+    el("self-update-text").textContent = `外壳更新失败：${failure}`;
+    button.disabled = false;
+    button.textContent = label;
+  }
+});
+
+el("btn-self-dismiss").addEventListener("click", async () => {
+  const version = selfUpdate?.version;
+  if (!version) return;
+  try {
+    await invoke("dismiss_self_version", { version });
+    selfUpdate = { ...(selfUpdate || {}), should_prompt: false };
+    renderSelfUpdate();
+  } catch (failure) {
+    el("self-update-text").textContent = String(failure);
   }
 });
 

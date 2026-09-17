@@ -14,6 +14,7 @@ A lightweight Tauri desktop shell for DeepSeek Harness — more precisely, a **d
 - **Pick the port at launch**: the dialog carries a port field under the version columns, with the default shown in grey (the first free port of `3080`–`3129`, or a port you typed before). Confirming accepts it; typing any other port uses that instead. A port that cannot be used is answered there, not after a failed start.
 - **Two windows**: the shell's own `bootstrap` page carries progress, updates and failures; the `dsh` window shows dsh alone. Nothing from startup can end up drawn over dsh.
 - **Update check on launch**: reads the published versions of `@deepseek-ai/dsh` from npm and shows them in three columns — stable, RC and alpha — with the option to install any of them and restart.
+- **Updates to this application itself**: startup also asks this repository's GitHub Releases; a newer build is offered above the version columns with a *Download and install* action. The installer for this platform is downloaded, checked against the release's published `SHA256SUMS`, and only then handed to the system installer. A different question from dsh's own updates, with its own "don't remind me" record.
 - **Don't remind me about this version**: suppresses the launch prompt for that one version; a newer version still prompts.
 - **Menus, tray and shortcuts**: macOS uses a native system menu; Windows and Linux use a tray menu, with no permanent menu bar. `Ctrl/Cmd+R` reloads, `Ctrl/Cmd+=` `-` `0` zoom, `F12` opens DevTools.
 - **External links open in the browser**: links that leave the app are handed to the desktop's default handler instead of taking over the window.
@@ -108,6 +109,19 @@ Tauri can only bind a keyboard shortcut through a menu accelerator, and on Windo
 On Linux there is one further condition: `global-hotkey` grabs keys through X11, and **a Wayland-native window's keystrokes never pass through the X server** — the shortcuts register successfully and then never fire. That is Wayland's design, not a defect. So the shell switches to the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop): the cost is some rendering polish, and what it buys back is reload, zoom and the inspector. `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
 
 Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which would conflict with the no-injection rule.
+
+### Updates to this application itself
+
+Two independent paths: dsh comes from npm, this application comes from its own GitHub Releases. Startup asks both at once, and neither waits for the other.
+
+| Situation | Behaviour |
+|---|---|
+| A newer build with an installer for this machine | The dialog offers *Download and install*; the file is checked against `SHA256SUMS` and only then handed to the system installer |
+| A newer build with nothing installable here | The action becomes *Open the release page* — no guessing, nothing else downloaded |
+| The check fails (offline, rate-limited API, no release yet) | Silent. Not knowing about an update is not a reason to interrupt anyone |
+| The checksum does not match, or the release publishes none | Refused, with the expected and actual hashes named; nothing is written |
+
+Both sides must parse as semver and the tag's `v` prefix is stripped first. That is deliberate: the dsh comparator falls back to string inequality when parsing fails, which is a fair guess for a version feed and a bug for an updater — it would offer the build the user is already running. "Don't remind me" is recorded per application version, in its own file, so it cannot silence a dsh update or the reverse.
 
 ### Update checks
 

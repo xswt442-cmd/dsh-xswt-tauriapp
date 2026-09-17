@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{server, updates};
+use dsh_xswt_tauriapp_core::{self_update, server, updates};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -27,6 +27,9 @@ pub const EVENT_UPDATE: &str = "shell://update";
 /// Startup reached the point where the user picks a port and a version; carries
 /// the full [`ShellState`].
 pub const EVENT_CHOOSE: &str = "shell://choose";
+/// Result of a check for a newer build of *this application*; carries a
+/// [`crate::update::SelfUpdatePayload`].
+pub const EVENT_SELF_UPDATE: &str = "shell://self-update";
 
 /// The window showing the shell's own UI: progress, updates, failures. A local
 /// origin, and the only window a capability is granted to.
@@ -76,6 +79,10 @@ pub struct ShellState {
     /// The resolved dsh launcher, so the dialog's "installed at" line shows a
     /// path rather than, as it used to, the loopback URL.
     pub dsh_bin: Option<String>,
+    /// This build's own version, so the page can name what it would update.
+    pub shell_version: Option<String>,
+    /// The last self-update check, as the page sees it.
+    pub self_update: Option<crate::update::SelfUpdatePayload>,
     /// Fatal startup error, when `phase` is `failed`.
     pub error: Option<String>,
     /// The installed dsh version.
@@ -120,6 +127,13 @@ pub struct Shell {
     pub handoff: Handoff,
     /// The port the user last chose by hand.
     pub port_memory: server::PortMemory,
+    /// Versions of *this application* the user asked not to be reminded about.
+    /// A second store rather than a shared one: dsh versions and application
+    /// versions are different namespaces and must not silence each other.
+    pub self_dismiss: updates::DismissStore,
+    /// The pending self-update, kept in Rust because acting on it needs the
+    /// asset URLs — which have no business in a page.
+    pub self_pending: Option<self_update::Available>,
     /// Zoom factor of the guest window, tracked here because the webview has no
     /// getter for it.
     pub zoom: f64,
@@ -134,6 +148,8 @@ impl Default for Shell {
             session: None,
             handoff: Handoff::default(),
             port_memory: server::PortMemory::default(),
+            self_dismiss: updates::DismissStore::default(),
+            self_pending: None,
             zoom: 1.0,
         }
     }

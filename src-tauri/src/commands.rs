@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::state::{self, SharedShell, ShellState};
-use crate::update::{self, UpdatePayload};
+use crate::update::{self, SelfUpdatePayload, UpdatePayload};
 use crate::{bootstrap, guest, shell_log};
 
 /// What the port in the dialog would do, classified.
@@ -118,6 +118,38 @@ pub async fn start_server(
 #[tauri::command]
 pub fn check_updates(app: AppHandle, shell: State<'_, SharedShell>) -> UpdatePayload {
     update::refresh(&app, shell.inner())
+}
+
+/// Re-run the check for a newer build of this application.
+#[tauri::command]
+pub fn check_self_update(app: AppHandle, shell: State<'_, SharedShell>) -> SelfUpdatePayload {
+    update::refresh_self(&app, shell.inner())
+}
+
+/// Stop reminding about one build of this application.
+///
+/// A separate command from `dismiss_version`, and a separate store behind it:
+/// dsh versions and application versions are different namespaces.
+#[tauri::command]
+pub fn dismiss_self_version(shell: State<'_, SharedShell>, version: String) -> Result<(), String> {
+    let mut guard = shell.lock().map_err(|_| "状态锁不可用".to_string())?;
+    guard.self_dismiss.dismiss(&version)?;
+    if let Some(payload) = guard.state.self_update.as_mut() {
+        if payload.version.as_deref() == Some(version.as_str()) {
+            payload.should_prompt = false;
+        }
+    }
+    Ok(())
+}
+
+/// Download this machine's installer, verify it, and open it.
+///
+/// `async` for the same reason `open_dsh` is: it reaches the network, and a
+/// synchronous command would do that inside the webview's IPC callback.
+#[tauri::command]
+pub async fn apply_self_update(shell: State<'_, SharedShell>) -> Result<String, String> {
+    let shared = shell.inner().clone();
+    update::apply_self_update(&shared)
 }
 
 /// Add a version to the do-not-remind list and return the refreshed state.

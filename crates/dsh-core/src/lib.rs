@@ -12,6 +12,9 @@
 //! * [`updates`] — read the published `@deepseek-ai/dsh` versions, split them
 //!   into the stable / rc / alpha channels, and remember which versions the
 //!   user asked not to be reminded about.
+//! * [`self_update`] — the same question about *this* application, answered from
+//!   its own GitHub releases rather than from npm.
 
+pub mod self_update;
 pub mod server;
 pub mod updates;

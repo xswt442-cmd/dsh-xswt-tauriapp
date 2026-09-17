@@ -50,12 +50,24 @@
               <h2 id="dialog-title">启动 dsh</h2>
               <p class="muted small">
                 当前版本 <code id="current-version">—</code> ·
-                已安装于 <code id="dsh-location">—</code>
+                已安装于 <code id="dsh-location">—</code> ·
+              外壳 <code id="shell-version">—</code>
               </p>
             </div>
           </div>
           <button id="btn-recheck" class="ghost small">重新检查</button>
         </header>
+
+        <!-- This application's own release is a different product from the dsh
+             runtime the columns below are about, so it gets one labelled line
+             rather than a place among them. -->
+        <div id="self-update" class="notice hidden">
+          <span id="self-update-text" class="small"></span>
+          <span class="row">
+            <button id="btn-self-update" class="ghost small">下载并安装</button>
+            <button id="btn-self-dismiss" class="ghost small">不再提示</button>
+          </span>
+        </div>
 
         <p id="check-error" class="error-inline hidden"></p>
 

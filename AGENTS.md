@@ -55,6 +55,14 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 - No `zoom_hotkeys_enabled` (it injects a polyfill); zoom goes through `set_zoom`.
 - Never offer an update from a channel less stable than the installed one, and scope
   "don't remind me" to one version.
+- Two update paths, two sources, two dismiss stores: dsh comes from npm
+  (`updates`), this application from its own GitHub Releases (`self_update`).
+  Never share a store between them, and never compare one product's versions with
+  the other's. The self-update path strips a tag's `v` prefix and requires both
+  sides to parse as semver, because `updates::is_newer` falls back to string
+  inequality — which would offer the running build back as an update. An installer
+  is only handed to the OS after its published `SHA256SUMS` matches; a release
+  without checksums is refused.
 - Keep the four version fields equal and each README/CHANGELOG pair in sync.
 - Icons come from `tauri icon`; changing `src-tauri/icons/` does not rebuild the exe,
   so touch `src-tauri/build.rs` first.

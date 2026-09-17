@@ -21,6 +21,16 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - A menu or tray that fails to build no longer stops the application from starting. Both are conveniences, and `setup` used to treat their failure as a failed launch — fatal on a desktop without a StatusNotifier host, and on the macOS menu path that had never been run.
 - The dialog's "installed at" line showed the loopback URL; it now shows the resolved dsh launcher.
 
+## Unreleased
+
+### Added
+
+- A check for updates to this application itself: startup asks this repository's GitHub Releases in parallel with everything else and offers *Download and install* above the version columns. The installer for this platform is picked by name (`setup.exe` on Windows, `dmg` on macOS, `deb` on Linux), downloaded, checked against the release's published `SHA256SUMS`, and only then handed to the system installer. A release with nothing installable here degrades to *Open the release page*; a mismatched checksum, or a release that publishes none, is refused and nothing is written. Independent of dsh's own updates, with its own "don't remind me" record.
+
+### Fixed
+
+- Version comparison can no longer offer the running build back as an update: GitHub tags carry a `v` prefix (`v0.0.7`) while dsh's comparator falls back to string inequality when a version fails to parse, so `"v0.0.7" != "0.0.7"` read as "newer". The self-update path strips the prefix first and requires both sides to parse as semver.
+
 ## 0.0.7 - 2026-09-17
 
 ### Fixed
