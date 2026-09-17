@@ -11,20 +11,16 @@
 [![compat](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml/badge.svg)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml)
 [![downloads](https://img.shields.io/github/downloads/xswt442-cmd/dsh-xswt-tauriapp/total?label=downloads)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases)
 
-A lightweight Tauri desktop shell for DeepSeek Harness — more precisely, a **desktop harness / runtime supervisor** for dsh. Tauri owns everything around it: windows, the server process, launching and reuse, the session hand-off, menus/tray/shortcuts, updates, external links and failure recovery; dsh owns its own page. The shell does not modify dsh, and it **does not inject a script into dsh's page, read its DOM, patch its CSS, or draw shell UI over it** — nor does it take part in dsh's session, sandbox or permission model.
+A lightweight Tauri desktop shell for DeepSeek Harness, and a **desktop harness / runtime supervisor** for dsh: Tauri owns dsh's periphery — windows, the server process, launching and reuse, the session hand-off, menus and tray, shortcuts, updates, external links and failure recovery — while dsh owns its own page. The shell does not modify dsh: it does not inject a script into dsh's page, read its DOM, patch its styles or draw shell UI over it, and it takes no part in dsh's session, sandbox or permission model.
 
 ## Features
 
-- **Reuse or start a server**: scans ports 3080–3129 and reuses a running `dsh web` when there is one; otherwise it starts one on the first free port.
-- **Launch-token handshake and session hand-off**: dsh hands its interface only to a request carrying the token it minted at startup. The handshake is walked and verified in Rust, and the resulting session cookie is given to the window — the launch token never reaches a page's URL.
-- **Pick the port at launch**: the dialog carries a port field under the version columns, with the default shown in grey (the first free port of `3080`–`3129`, or a port you typed before). Confirming accepts it; typing any other port uses that instead. A port that cannot be used is answered there, not after a failed start.
-- **Two windows**: the shell's own `bootstrap` page carries progress, updates and failures; the `dsh` window shows dsh alone. Nothing from startup can end up drawn over dsh.
-- **Update check on launch**: reads the published versions of `@deepseek-ai/dsh` from npm and shows them in three columns — stable, RC and alpha — with the option to install any of them and restart.
-- **Updates to this application itself**: startup also asks this repository's GitHub Releases; a newer build is offered above the version columns with a *Download and install* action. The installer for this platform is downloaded, checked against the release's published `SHA256SUMS`, and only then handed to the system installer. A different question from dsh's own updates, with its own "don't remind me" record.
-- **Don't remind me about this version**: suppresses the launch prompt for that one version; a newer version still prompts.
-- **Menus, tray and shortcuts**: macOS uses a native system menu; Windows and Linux use a tray menu, with no permanent menu bar. `Ctrl/Cmd+R` reloads, `Ctrl/Cmd+=` `-` `0` zoom, `F12` opens DevTools.
-- **External links open in the browser**: links that leave the app are handed to the desktop's default handler instead of taking over the window.
-- **The server outlives the shell**: it runs in its own process group, and closing the window never stops it.
+- **Reuse or start a server**: reuses a running `dsh web` in `3080`–`3129`, or starts one on the first free port; the server process is independent of the shell, so closing the window never stops it.
+- **Launch-token handshake and session hand-off**: the handshake is walked and verified in Rust, and the launch token never reaches a page's URL.
+- **Pick the port at launch**: the default comes from the scan or from the port typed last, and any other port can be typed; availability is answered on the spot.
+- **Update prompts**: dsh's updates are shown in stable / RC / alpha columns, while this application's own updates pick and checksum the installer for this platform; each keeps its own "don't remind me" record.
+- **System integration**: a native system menu on macOS, a tray menu on Windows and Linux; `Ctrl/Cmd+R`, `Ctrl/Cmd+=` `-` `0` and `F12` are registered only while one of the shell's windows has focus.
+- **Links that leave the app** are handed to the desktop's default handler instead of taking over the window.
 
 ## Getting it
 
@@ -36,12 +32,11 @@ The [marketplace](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) entr
 dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
 ```
 
-On the **first** dsh start after installing it, the stub reads this repository's latest release, picks the installer for this platform, fetches `SHA256SUMS` and only writes the file once its digest matches, then hands it to the system installer. A machine that already has the shell, or one with no desktop session (CI, or Linux without `DISPLAY`), is only told where to look. It installs nothing silently and imports no harness API — no tool, no UI, no dsh internal — so it cannot become the reason a harness fails to start.
+On the **first** dsh start after installing it, the stub reads this repository's latest release, picks the installer for this platform, fetches `SHA256SUMS` and only writes the file once its digest matches, then hands it to the system installer. A machine that already has the shell, or one with no desktop session (CI, or Linux without `DISPLAY`), is only told where to look. It installs nothing silently and imports no harness API, so it cannot become the reason a harness fails to start.
 
 ### From a release
 
-Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage,
-together with `SHA256SUMS`. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
+Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage, together with `SHA256SUMS`. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
 
 ```sh
 sudo apt install "./dsh-xswt-tauriapp_0.0.7_amd64.deb"
@@ -88,21 +83,21 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | Unauthenticated server | A bare `GET /` answering 200 with the marker is accepted too |
 | Start | `node <dsh>/lib/bin.js web --port <p> --no-open`, in its own process group, appending to that same log |
 
-The server log is the only source of the token, so an instance started by hand in a terminal — whose log never lands there — is not recognised, and the shell starts one of its own. That follows from dsh's authentication model; the shell does not guess around it.
+The server log is the only source of the token: an instance started by hand in a terminal, whose log never lands there, is not recognised, and the shell starts one of its own. That follows from dsh's authentication model; the shell does not guess around it.
 
 ### Choosing the port
 
 | Situation | Behaviour |
 |---|---|
 | An adoptable server was found | The field is pre-filled with its port; confirming reuses it. Typing another port starts a second instance |
-| Nothing adoptable | Default is the first free port of `3080`–`3129`, or a port you typed before while it is still free |
+| Nothing adoptable | Default is the first free port of `3080`–`3129`, or a port typed before while it is still free |
 | Another program owns the port | Said there and then; confirming does not go ahead |
 | A dsh is there that this machine cannot enter | Called out separately — a Windows-side instance, or one started under a different `DSH_HOME` |
 | Below `1024` | Refused: an ordinary user cannot bind it |
 
-Only a port you **typed** is remembered, and used as the next default. Accepting the grey default is not a choice, so the default keeps tracking the first free port.
+Only a port that was **typed** is remembered, and used as the next default. Accepting the grey default is not a choice, so the default keeps tracking the first free port.
 
-Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/server-<port>.out.log` rather than from a sweep of the whole band: a port with no log has no launch token, so its handshake could never complete and probing it is wasted work. That is also what lets a deliberately unusual port — `9000`, say — be found again on the next launch, which a `3080`–`3129` sweep never could.
+Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/server-<port>.out.log` rather than from a sweep of the whole band: a port with no log has no launch token, so its handshake could never complete and probing it is wasted work. That is also what lets a deliberately unusual port — `9000`, say — be found again on the next launch.
 
 ### Window model and the first navigation
 
@@ -111,7 +106,7 @@ Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/se
 | `bootstrap` | The shell's own page: progress, the update dialog, failure text | A local origin, and the only window granted an IPC capability |
 | `dsh` | dsh's own interface, untouched | A remote origin, granted nothing |
 
-dsh's session cookie is `SameSite=Strict`. A navigation started by a page at another origin does not carry it — which is exactly why navigating the *shell page* to dsh used to stop on dsh's 401 text. The shell keeps dsh's security semantics and changes the order instead: Rust completes the handshake and writes the cookie into the cookie store **first**, and only then builds the dsh window on `http://127.0.0.1:<port>/`. That window's first navigation is started by the host with no initiating page, so it is not a cross-site request and the Strict cookie is sent.
+dsh's session cookie is `SameSite=Strict`, and a navigation started by a page at another origin does not carry it — which is why navigating the shell page to dsh stops on dsh's 401 text. The shell keeps dsh's security semantics and changes the order instead: Rust completes the handshake and writes the cookie into the cookie store first, and only then builds the dsh window on `http://127.0.0.1:<port>/`. That window's first navigation is started by the host with no initiating page, so it is not a cross-site request.
 
 ### Menus, tray and shortcuts
 
@@ -120,11 +115,11 @@ dsh's session cookie is `SameSite=Strict`. A navigation started by a page at ano
 | macOS | A native system menu, including an Edit menu — the standard text shortcuts depend on it |
 | Windows / Linux | A tray menu; no permanent menu bar, so none of dsh's height is spent on one |
 
-Tauri can only bind a keyboard shortcut through a menu accelerator, and on Windows and Linux a menu attached to a window *is* a visible menu bar. So on those platforms the shortcuts are global shortcuts, registered **only while one of the shell's windows has focus** and released on blur — `Ctrl+R` is not taken away from the rest of the machine. If the desktop refuses to hand out global shortcuts, the shell still starts; it just loses the gestures.
+Tauri can bind a keyboard shortcut only through a menu accelerator, and on Windows and Linux a menu attached to a window *is* a visible menu bar. Those platforms therefore use global shortcuts, registered only while one of the shell's windows has focus and released on blur, so `Ctrl+R` is not taken away from the rest of the machine. If the desktop refuses to hand out global shortcuts, the shell still starts; it just loses the gestures.
 
-On Linux there is one further condition: `global-hotkey` grabs keys through X11, and **a Wayland-native window's keystrokes never pass through the X server** — the shortcuts register successfully and then never fire. That is Wayland's design, not a defect. So the shell switches to the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop): the cost is some rendering polish, and what it buys back is reload, zoom and the inspector. `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
+On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
 
-Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which would conflict with the no-injection rule.
+Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule.
 
 ### Updates to this application itself
 
@@ -137,9 +132,9 @@ Two independent paths: dsh comes from npm, this application comes from its own G
 | The check fails (offline, rate-limited API, no release yet) | Silent. Not knowing about an update is not a reason to interrupt anyone |
 | The checksum does not match, or the release publishes none | Refused, with the expected and actual hashes named; nothing is written |
 
-Both sides must parse as semver and the tag's `v` prefix is stripped first. That is deliberate: the dsh comparator falls back to string inequality when parsing fails, which is a fair guess for a version feed and a bug for an updater — it would offer the build the user is already running. "Don't remind me" is recorded per application version, in its own file, so it cannot silence a dsh update or the reverse.
+Both sides must parse as semver and the tag's `v` prefix is stripped first. The dsh comparator is not reused here: its string fallback suits a version feed, while an updater using it would offer the build the user is already running. "Don't remind me" is recorded per application version in its own file (`dismissed-shell-updates.json`), so it can neither silence a dsh update nor be silenced by one.
 
-### Update checks
+### Updates to dsh itself
 
 Channels are derived from the version string rather than from npm's dist-tags, because a tag can itself point at a release candidate.
 
@@ -158,7 +153,7 @@ The launch prompt only offers a candidate from a channel at least as stable as t
 | Linux (deb / rpm / AppImage) | Supported; produced by CI. The session hand-off and first navigation are exercised |
 | Windows (NSIS installer) | Build wired up; the core logic is verified on `windows-latest` by CI, the GUI has not been exercised |
 | macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
-| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has **no status bar**, so a tray icon has nowhere to appear (the icon itself is created); shortcuts work, provided the X11 backend is used |
+| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used |
 
 That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK. Windows and macOS rely on their own webviews treating an initiator-less navigation as same-site, which has not been measured.
 
