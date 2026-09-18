@@ -269,10 +269,14 @@ jobs:
       # documented flow cannot produce, but a warning beats a blank page).
       - name: the changelog comes from the default branch
         shell: bash
+        env:
+          # Through the environment rather than interpolated into the script: a
+          # branch name is repository state, not a literal for this shell.
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          branch='${{ github.event.repository.default_branch }}'
+          branch="$DEFAULT_BRANCH"
           git fetch --depth=1 origin "$branch"
           pattern='^## (\[?'"${version}"'\]?)([[:space:]]|$)'
           if git show FETCH_HEAD:CHANGELOG.md | grep -qE "$pattern"; then
