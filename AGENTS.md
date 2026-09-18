@@ -5,7 +5,9 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 
 ## Workflow
 
-- Develop on `dev`; keep `main` release-only.
+- Develop on `dev`; keep `main` release-only, and `main` is the repository's default
+  branch — so `HEAD` readers (the marketplace screenshot probe, the release-notes step)
+  follow it, not `dev`.
 - Lowercase Conventional Commit prefixes. Never use `--no-verify`.
 - `testplace/` is ignored scratch — records, measurements, long explanations — with
   `WORKLOG.md` as the running log. Keep this file short.
