@@ -54,7 +54,11 @@ refreshes — the GitHub release with those artifacts and the notes taken from
 
 The matching section of `CHANGELOG.md` *is* the release body, appended verbatim
 to the fixed install block the workflow writes — so whatever goes in the
-changelog is what a visitor to the release page reads.
+changelog is what a visitor to the release page reads. The workflow reads that
+section from the **default branch**, not from the tag: at release time they are
+the same commit, and afterwards the branch is the copy that keeps being edited,
+so fixing an older entry is enough — re-running that tag restores the corrected
+text rather than what the tag froze.
 
 Entries are one line each and state the change in technical terms: what is now
 true. How it was found, which file was at fault, and the measurements behind a

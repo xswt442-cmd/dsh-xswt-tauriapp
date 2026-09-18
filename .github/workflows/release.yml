@@ -258,6 +258,30 @@ jobs:
             | sort -z | xargs -0 sha256sum -- > SHA256SUMS
           cat SHA256SUMS
 
+      # The notes *are* the changelog — this version's section, verbatim — so they
+      # have to come from the copy of the changelog that is still being edited. A
+      # tag cannot be changed, so reading it from the tag freezes the text at
+      # whatever it said the day it was cut: fix a typo in an old section and the
+      # next re-run of that tag would put the typo back. The default branch is the
+      # live copy, and at release time it points at the same release commit the tag
+      # does, so the normal path is unchanged. The tag's own file stays the
+      # fallback, for a release whose section is not on the branch (which the
+      # documented flow cannot produce, but a warning beats a blank page).
+      - name: the changelog comes from the default branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          branch='${{ github.event.repository.default_branch }}'
+          git fetch --depth=1 origin "$branch"
+          pattern='^## (\[?'"${version}"'\]?)([[:space:]]|$)'
+          if git show FETCH_HEAD:CHANGELOG.md | grep -qE "$pattern"; then
+            git show FETCH_HEAD:CHANGELOG.md > CHANGELOG.md
+            echo "notes will come from $branch's changelog"
+          else
+            echo "::warning::$branch's changelog has no ${version} section; using the tag's"
+          fi
+
       - name: release notes from the changelog
         shell: bash
         run: |

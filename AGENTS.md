@@ -17,8 +17,10 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   no DOM reads, no CSS patches, no shell UI over dsh's window.
 - Two windows, and the split is load-bearing: `bootstrap` (local origin, the only
   one with a capability) carries progress, updates and failures; `dsh` (remote
-  origin, no capability) shows dsh alone. Failures reach stderr through `page_diag`,
-  not just the failure view — a packaged GUI has no terminal.
+  origin, no capability) shows dsh alone. Failures reach the shell's log through
+  `page_diag`, not just the failure view: that log is stderr in debug builds, and
+  in a release build only when `DSH_SHELL_DEBUG` is set — a packaged GUI has no
+  terminal, which is why the variable exists.
 - The hand-off's mechanics are all load-bearing: the cookie stays `SameSite=Strict`
   and the first navigation into dsh is host-initiated with the cookie already in the
   store; cookie work runs on a worker thread because `cookies_for_url` deadlocks on
