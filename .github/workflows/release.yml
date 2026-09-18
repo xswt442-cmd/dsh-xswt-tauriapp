@@ -277,13 +277,22 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           branch="$DEFAULT_BRANCH"
-          git fetch --depth=1 origin "$branch"
+          live="$RUNNER_TEMP/changelog-default-branch.md"
           pattern='^## (\[?'"${version}"'\]?)([[:space:]]|$)'
-          if git show FETCH_HEAD:CHANGELOG.md | grep -qE "$pattern"; then
-            git show FETCH_HEAD:CHANGELOG.md > CHANGELOG.md
-            echo "notes will come from $branch's changelog"
+          # Three things can fail without the release being at fault: the branch
+          # cannot be fetched, it has no CHANGELOG.md, or it has no section for this
+          # version. All three are conditions rather than steps, because the worst
+          # outcome has to be the tag's own changelog — what every release used
+          # before this existed — and never a failed release. The file is grepped
+          # rather than a pipe into `grep -q`, whose early exit can SIGPIPE the
+          # writer and, under `pipefail`, read as "no match" on a match.
+          if git fetch --depth=1 origin "$branch" \
+             && git show "FETCH_HEAD:CHANGELOG.md" > "$live" \
+             && grep -qE "$pattern" "$live"; then
+            cp "$live" CHANGELOG.md
+            echo "the notes come from $branch's changelog"
           else
-            echo "::warning::$branch's changelog has no ${version} section; using the tag's"
+            echo "::warning::no ${version} section to be had from $branch; using the tag's changelog"
           fi
 
       - name: release notes from the changelog
