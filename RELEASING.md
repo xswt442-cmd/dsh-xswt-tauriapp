@@ -50,6 +50,18 @@ rebuilds the deb and AppImage, packs the marketplace stub, and creates — or
 refreshes — the GitHub release with those artifacts and the notes taken from
 `CHANGELOG.md`. Tags are not moved; cut a new patch release instead.
 
+## Changelog and release notes
+
+The matching section of `CHANGELOG.md` *is* the release body, appended verbatim
+to the fixed install block the workflow writes — so whatever goes in the
+changelog is what a visitor to the release page reads.
+
+Entries are one line each and state the change in technical terms: what is now
+true. How it was found, which file was at fault, and the measurements behind a
+decision belong in the commit message and in `testplace/WORKLOG.md`, not here.
+Both changelogs carry the same sections with the same number of entries in each;
+`scripts/check-docs.mjs` fails otherwise.
+
 ## The marketplace asset
 
 `stub` packs `plugins/dsh-desktop-app/` with `npm pack` and attaches it as

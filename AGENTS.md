@@ -76,7 +76,9 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   version-free, since `releases/latest/download/<name>` takes the filename literally.
 - Keep the five version fields equal and each README/CHANGELOG pair in sync. The
   changelog must carry exactly one `## Unreleased` section: `release-notes.mjs`
-  takes the first match and would silently drop the rest.
+  takes the first match and would silently drop the rest. A changelog section is
+  also the release body verbatim, so entries stay one line, technical, and about
+  what changed — the debugging story goes in the commit or `testplace/WORKLOG.md`.
 - Icons come from `tauri icon`; changing `src-tauri/icons/` does not rebuild the exe,
   so touch `src-tauri/build.rs` first.
 - `web/whale.png` is an unmodified copy of `src-tauri/icons/128x128@2x.png` (only
