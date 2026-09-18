@@ -7,11 +7,11 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Added
 
-- The port can be chosen at launch: the default is the first free port of `3080`–`3129`, or the one typed last, and any other port can be typed instead.
-- Port availability is decided before launch and reported as reusable, occupied, not enterable (a dsh whose session this machine cannot adopt), or below `1024`.
-- A port typed by hand is remembered as the next default.
+- The port can be chosen at launch: the default is the running dsh's port if there is one, otherwise the first free port of `3080`–`3129` or the one typed last; any other port can be typed instead.
+- Port availability is decided before launch and reported as will-start, reusable, occupied, not enterable (a dsh whose session this machine cannot adopt), or below `1024`.
+- A port typed by hand is remembered, ahead of the scan while it is still free.
 - Self-update: a new version is offered above the version columns, and this platform's installer is picked from the repository's releases and handed over only once it matches the published `SHA256SUMS`; with none for this platform the release page opens instead, and a bad or missing checksum file is refused without writing anything.
-- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that fetches `SHA256SUMS` on the first dsh start and writes this platform's installer only once the digest matches, then hands it to the system installer; an existing install, no desktop session, or no installer here only gets one line. It installs nothing silently and imports no harness API.
+- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that fetches `SHA256SUMS` on the first dsh start and writes this platform's installer only once the digest matches, then hands it to the system installer; an existing install stays silent, no desktop session or no installer here only gets one line, and nothing is installed silently or imports a harness API.
 
 ### Changed
 
@@ -42,7 +42,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - Windows no longer stops on the `bootstrap` page without reaching dsh: the command that creates the window is now `async`, with the window still built on the main thread.
 - Shortcuts are unregistered one by one, so a refused registration no longer leaves the rest held for good.
-- A failed hand-off reports its reason to stderr through `page_diag`, since a packaged GUI has no terminal.
+- A failed hand-off reaches the shell's log through `page_diag` — stderr in debug builds, or in release builds with `DSH_SHELL_DEBUG` set — instead of only rendering the failure page.
 - The local `npm run build` follows `tauri.conf.json`'s `targets` instead of hardcoding Linux's bundler targets.
 
 ## 0.0.5 - 2026-09-16
