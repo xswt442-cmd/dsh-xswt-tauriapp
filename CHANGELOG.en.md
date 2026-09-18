@@ -10,8 +10,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The port can be chosen at launch: the default is the first free port of `3080`–`3129`, or the one typed last, and any other port can be typed instead.
 - Port availability is decided before launch and reported as reusable, occupied, not enterable (a dsh whose session this machine cannot adopt), or below `1024`.
 - A port typed by hand is remembered as the next default.
-- Self-update: picks this platform's installer from the repository's releases and hands it over only after it matches the published `SHA256SUMS`; a mismatch or a missing checksum file is refused.
-- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that downloads this platform's installer on the first dsh start, verifies it, and hands it to the system installer.
+- Self-update: picks this platform's installer from the repository's releases and hands it over only once it matches the published `SHA256SUMS`; with none for this platform it opens the release page, and a bad or missing checksum file is refused.
+- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that downloads and verifies this platform's installer on the first dsh start and hands it to the system installer; an existing install, no desktop session, or no installer here gets one line instead.
 
 ### Changed
 
@@ -40,7 +40,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
-- Fixed Windows stopping on the `bootstrap` page without reaching dsh: the command that creates the window is now `async`, with the window still built on the main thread.
+- Windows no longer stops on the `bootstrap` page without reaching dsh: the command that creates the window is now `async`, with the window still built on the main thread.
 - Shortcuts are unregistered one by one, so a refused registration no longer leaves the rest held for good.
 - A failed hand-off reports its reason to stderr through `page_diag`, since a packaged GUI has no terminal.
 - The local `npm run build` follows `tauri.conf.json`'s `targets` instead of hardcoding Linux's bundler targets.
@@ -49,8 +49,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Changed
 
-- The shell is now a desktop harness for dsh: Tauri owns windows, the server process, launch and reuse, the session hand-off, menus/tray/shortcuts, updates and external links; the page belongs to dsh.
-- Startup is split across two windows: `bootstrap` carries progress, the update dialog and failures; the `dsh` window shows dsh alone.
+- The shell is now a desktop harness for dsh: Tauri owns windows, the server process, launch and reuse, the session hand-off, menus/tray/shortcuts, updates, external links and failure recovery; the page belongs to dsh.
+- Startup is split across two windows: `bootstrap` carries progress, the update dialog and failures, while the `dsh` window shows dsh alone; nothing from startup can be drawn over dsh, which is a structural guarantee rather than a convention.
 - The hand-off moved into Rust: `resolve_session()` verifies the handshake and returns a clean address and the session cookie, so the launch token never enters a page URL.
 - The first navigation is host-initiated, leaving dsh's `SameSite=Strict` unchanged.
 - Menus, a tray and shortcuts: a native system menu on macOS (including the Edit menu), a tray menu on Windows and Linux, with shortcuts registered only while one of the shell's windows has focus.
@@ -58,22 +58,22 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Removed
 
-- Removed the `initialization_script` injected into dsh's page, the 401 text sniffing, the failed-hand-off sentinel path and the page's `Ctrl+R` listener.
+- The `initialization_script` injected into dsh's page, the 401 text sniffing, the failed-hand-off sentinel path and the page's `Ctrl+R` listener are gone; the shell no longer depends on the guest's front-end structure.
 
 ### Fixed
 
 - A hand-off no longer strands on dsh's 401 page: the session cookie is written into the store and read back before the window is created, supplying the `Domain` the server omits.
 - The `dsh` window stays hidden until its page loads, and a timeout returns to `bootstrap` with the reason.
 - compat CI asserts the example prints a clean, token-free address and that it still answers 401 without the cookie.
-- Fixed Windows builds failing over `global-hotkey`'s manager: it now lives on the thread that created it (`thread_local`), and managed state carries plain data only.
-- Linux takes the X11 backend whenever `DISPLAY` exists, with `DSH_SHELL_WAYLAND=1` to opt out.
+- Windows builds no longer fail over `global-hotkey`'s manager: it now lives on the thread that created it (`thread_local`), and managed state carries plain data only.
+- Linux shortcuts no longer register and then never fire: the X11 backend (XWayland) is used whenever `DISPLAY` exists, with `DSH_SHELL_WAYLAND=1` to opt out.
 - compat CI now compiles the harness on Windows and macOS, and a fired shortcut logs itself.
 
 ## 0.0.4 - 2026-09-16
 
 ### Added
 
-- Added `Ctrl+R` / `F5` to reload, since the window has no browser chrome and some dsh settings (content font size, the theme's boot values) only take effect on reload.
+- `Ctrl/Cmd+R` to reload, since the window has no browser chrome and some dsh settings (content font size, the theme's boot values) only take effect on reload.
 
 ### Fixed
 
@@ -97,7 +97,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 ### Added
 
 - Server reuse and startup: scans `3080`–`3129`, reuses a running `dsh web`, otherwise starts one on the first free port in its own process group.
-- Two-step launch-token handshake: reads the token from the server log, redeems it with `GET /?token=…`, re-requests with the session cookie and checks the page marker.
+- Two-step launch-token handshake: reads the token from the server log, redeems it with `GET /?token=…`, re-requests with the session cookie and checks the page marker; when it cannot be completed, another service on the port is not mistaken for dsh.
 - Update check on launch: reads the published `@deepseek-ai/dsh` versions from npm and shows them in stable, RC and alpha columns, with install-and-restart.
 - Update candidates come only from channels at least as stable as the installed version.
 - "Don't remind me about this version" is recorded per version in the app config directory and suppresses only that one.

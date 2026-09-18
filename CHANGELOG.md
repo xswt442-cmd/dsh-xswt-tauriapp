@@ -7,11 +7,11 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ### 新增
 
-- 启动弹窗新增端口选择：默认值为首个空闲端口（`3080`–`3129`）或上次手输的端口，也可输入任意端口。
+- 启动时可选端口：默认值为首个空闲端口（`3080`–`3129`）或上次手输的端口，也可输入任意端口。
 - 端口可用性在启动前判定，区分可复用 / 被占用 / 会话无法接手 / 低于 `1024` 四种结果。
 - 手输的端口会被记住，作为下次的默认值。
-- 外壳自身的更新检查：按平台挑选本仓库 release 的安装包，比对发布页 `SHA256SUMS` 通过后才交给系统安装器；校验不符或缺校验文件则拒绝。
-- 新增插件市场入口 `plugins/dsh-desktop-app/`：零依赖的引导插件（声明 `dsh.bundle`），首次启动 dsh 时下载、校验本平台安装包并交给系统安装器；不静默安装。
+- 外壳自身的更新检查：按平台挑选本仓库 release 的安装包，比对发布页 `SHA256SUMS` 通过后才交给系统安装器；本平台没有安装包时退化为打开发布页，校验不符或缺校验文件则拒绝。
+- 插件市场入口 `plugins/dsh-desktop-app/`：零依赖的引导插件（声明 `dsh.bundle`），首次启动 dsh 时下载、校验本平台安装包并交给系统安装器；已安装外壳、没有桌面会话、本平台没有安装包时只打印一句说明，不静默安装。
 
 ### 变更
 
@@ -40,7 +40,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ### 修复
 
-- 修复 Windows 上停在 `bootstrap` 页面、无法进入 dsh 界面：建窗命令改为 `async`，窗口仍由主线程创建。
+- Windows 上不再停在 `bootstrap` 页面、无法进入 dsh 界面：建窗命令改为 `async`，窗口仍由主线程创建。
 - 快捷键逐把注销并记录，注册失败不再导致其后的快捷键被永久占用。
 - 交接失败的原因经 `page_diag` 写入 stderr（打包后的 GUI 没有终端）。
 - 本地 `npm run build` 改为跟随 `tauri.conf.json` 的 `targets`，不再写死 Linux 的打包目标。
@@ -49,31 +49,31 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ### 变更
 
-- 外壳定位改为 dsh 的 desktop harness：Tauri 负责窗口、进程、启停与复用、会话交接、菜单/托盘/快捷键、更新与外链，页面归 dsh。
-- 启动拆为两个窗口：`bootstrap` 承载进度、更新弹窗与失败信息，`dsh` 窗口只显示 dsh。
+- 外壳定位改为 dsh 的 desktop harness：Tauri 负责窗口、进程、启停与复用、会话交接、菜单/托盘/快捷键、更新、外链与故障恢复，页面归 dsh。
+- 启动拆为两个窗口：`bootstrap` 承载进度、更新弹窗与失败信息，`dsh` 窗口只显示 dsh；启动期界面不可能覆盖在 dsh 上，这是结构保证而非约定。
 - 会话交接移到 Rust：`resolve_session()` 完成并校验握手后返回干净地址与会话 cookie，启动 token 不进入页面 URL。
 - 首次导航改为宿主发起，dsh 的 `SameSite=Strict` 保持不变。
-- 新增菜单、托盘与快捷键：macOS 用原生系统菜单（含「编辑」菜单），Windows / Linux 用托盘菜单，快捷键仅在自身窗口获得焦点期间注册。
+- 菜单、托盘与快捷键：macOS 用原生系统菜单（含「编辑」菜单），Windows / Linux 用托盘菜单，快捷键仅在自身窗口获得焦点期间注册。
 - 缩放改由 Rust 调用原生 `set_zoom`；开发者工具由 `devtools` feature 提供，release 构建默认不出现在菜单中。
 
 ### 移除
 
-- 移除注入 dsh 页面的 `initialization_script`、401 文本嗅探、交接失败哨兵路径与页面内的 `Ctrl+R` 监听。
+- 注入 dsh 页面的 `initialization_script`、401 文本嗅探、交接失败哨兵路径与页面内的 `Ctrl+R` 监听都已移除；外壳不再依赖 guest 的前端结构。
 
 ### 修复
 
 - 交接不再停在 dsh 的 401 页面：会话 cookie 在建窗之前写入 cookie 存储并确认可读，并补上服务未给出的 `Domain`。
 - `dsh` 窗口在页面加载完成前保持隐藏；加载超时回到 `bootstrap` 页面并说明原因。
 - compat CI 断言示例输出的是不含 token 的干净地址，且该地址不带 cookie 时仍返回 401。
-- 修复 Windows 构建在 `global-hotkey` manager 上的失败：manager 改放创建它的线程（`thread_local`），managed state 只保留纯数据。
-- Linux 上有 `DISPLAY` 时改用 X11 后端，可用 `DSH_SHELL_WAYLAND=1` 退出。
+- Windows 构建不再因 `global-hotkey` 的 manager 而失败：manager 改放创建它的线程（`thread_local`），managed state 只保留纯数据。
+- Linux 上不再出现「快捷键注册成功却不触发」：有 `DISPLAY` 时改用 X11 后端（XWayland），可用 `DSH_SHELL_WAYLAND=1` 退出。
 - compat CI 增加 Windows 与 macOS 的 harness 编译检查；快捷键触发时记录日志。
 
 ## 0.0.4 - 2026-09-16
 
 ### 新增
 
-- 新增 `Ctrl+R` / `F5` 刷新（窗口没有浏览器控件；内容字号与主题启动值需刷新才生效）。
+- `Ctrl/Cmd+R` 刷新（窗口没有浏览器控件；内容字号与主题启动值需刷新才生效）。
 
 ### 修复
 
@@ -97,7 +97,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 ### 新增
 
 - 服务复用与启动：扫描 `3080`–`3129`，复用已在运行的 `dsh web`，否则在首个空闲端口以独立进程组启动。
-- 启动 token 两步握手：从服务日志读取 token，`GET /?token=…` 换取会话 cookie 后复请并校验页面标记。
+- 启动 token 两步握手：从服务日志读取 token，`GET /?token=…` 换取会话 cookie 后复请并校验页面标记；握手不成立时，端口上的其他服务不会被误认为 dsh。
 - 启动时更新检查：读取 npm 上 `@deepseek-ai/dsh` 的已发布版本，按正式版 / RC / Alpha 分栏展示，可安装后重启。
 - 更新候选只取自稳定度不低于已装版本的通道。
 - 「不再提示此版本」按版本记录于应用配置目录，仅抑制该版本。
