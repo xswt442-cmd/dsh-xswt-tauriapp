@@ -22,6 +22,17 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness
 - **系统集成**：macOS 使用系统菜单，Windows / Linux 使用托盘菜单；`Ctrl/Cmd+R`、`Ctrl/Cmd+=` `-` `0` 与 `F12` 只在自身窗口获得焦点时注册。
 - **站外链接交给系统默认程序打开**，不接管应用窗口。
 
+## 平台与兼容性
+
+| 项 | 状态 |
+|---|---|
+| Linux（deb / rpm / AppImage） | 支持，由 CI 产出；会话交接与首次导航已实测 |
+| Windows（NSIS 安装包） | 构建已接入；核心逻辑经 CI 在 `windows-latest` 上验证，GUI 未实测 |
+| macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
+| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg 没有状态栏宿主，托盘图标无处显示；快捷键可用，前提是走 X11 后端 |
+
+首次导航发送 `SameSite=Strict` cookie 的行为已在 Linux / WebKitGTK 上实测确认；Windows 与 macOS 依赖各自 WebView 对无发起者导航的同站判定，尚未实测。
+
 ## 获取
 
 ### 从插件市场安装
@@ -148,17 +159,6 @@ Linux 上另有一个前提：`global-hotkey` 通过 X11 抓键，而 Wayland �
 | Alpha | 预发布段以 `alpha` 开头，如 `0.1.6-alpha.1` |
 
 启动弹窗只在稳定度不低于已装版本的通道中选取候选：已装 RC 时只会被提示 RC 或正式版，Alpha 需在弹窗中主动选择。「不再提示此版本」把该版本写入应用配置目录，且仅抑制该版本。
-
-## 平台与兼容性
-
-| 项 | 状态 |
-|---|---|
-| Linux（deb / rpm / AppImage） | 支持，由 CI 产出；会话交接与首次导航已实测 |
-| Windows（NSIS 安装包） | 构建已接入；核心逻辑经 CI 在 `windows-latest` 上验证，GUI 未实测 |
-| macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
-| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg 没有状态栏宿主，托盘图标无处显示；快捷键可用，前提是走 X11 后端 |
-
-首次导航发送 `SameSite=Strict` cookie 的行为已在 Linux / WebKitGTK 上实测确认；Windows 与 macOS 依赖各自 WebView 对无发起者导航的同站判定，尚未实测。
 
 ## 开发与验证
 

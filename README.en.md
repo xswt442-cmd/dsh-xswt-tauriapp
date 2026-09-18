@@ -22,6 +22,17 @@ A lightweight Tauri desktop shell for DeepSeek Harness, and a **desktop harness 
 - **System integration**: a native system menu on macOS, a tray menu on Windows and Linux; `Ctrl/Cmd+R`, `Ctrl/Cmd+=` `-` `0` and `F12` are registered only while one of the shell's windows has focus.
 - **Links that leave the app** are handed to the desktop's default handler instead of taking over the window.
 
+## Platform and compatibility
+
+| Item | Status |
+|---|---|
+| Linux (deb / rpm / AppImage) | Supported; produced by CI. The session hand-off and first navigation are exercised |
+| Windows (NSIS installer) | Build wired up; the core logic is verified on `windows-latest` by CI, the GUI has not been exercised |
+| macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
+| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used |
+
+That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK. Windows and macOS rely on their own webviews treating an initiator-less navigation as same-site, which has not been measured.
+
 ## Getting it
 
 ### From the plugin market
@@ -145,17 +156,6 @@ Channels are derived from the version string rather than from npm's dist-tags, b
 | Alpha | Prerelease starts with `alpha`, e.g. `0.1.6-alpha.1` |
 
 The launch prompt only offers a candidate from a channel at least as stable as the installed one: an RC install is offered RC or stable, and alpha has to be chosen deliberately from the dialog. "Don't remind me about this version" records that version in the app config directory and suppresses only that version.
-
-## Platform and compatibility
-
-| Item | Status |
-|---|---|
-| Linux (deb / rpm / AppImage) | Supported; produced by CI. The session hand-off and first navigation are exercised |
-| Windows (NSIS installer) | Build wired up; the core logic is verified on `windows-latest` by CI, the GUI has not been exercised |
-| macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
-| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used |
-
-That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK. Windows and macOS rely on their own webviews treating an initiator-less navigation as same-site, which has not been measured.
 
 ## Development and verification
 
