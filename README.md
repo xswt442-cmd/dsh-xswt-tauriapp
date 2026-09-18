@@ -27,11 +27,11 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness
 | 项 | 状态 |
 |---|---|
 | Linux（deb / rpm / AppImage） | 支持，由 CI 产出；会话交接与首次导航已实测 |
-| Windows（NSIS 安装包） | 构建已接入；核心逻辑经 CI 在 `windows-latest` 上验证，GUI 未实测 |
+| Windows（NSIS 安装包） | 支持；安装包与 GUI 已在真机日常使用中验证，交接与首次导航均已实测 |
 | macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
 | WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg 没有状态栏宿主，托盘图标无处显示；快捷键可用，前提是走 X11 后端 |
 
-首次导航发送 `SameSite=Strict` cookie 的行为已在 Linux / WebKitGTK 上实测确认；Windows 与 macOS 依赖各自 WebView 对无发起者导航的同站判定，尚未实测。
+首次导航发送 `SameSite=Strict` cookie 的行为已在 Linux / WebKitGTK 与 Windows / WebView2 上实测确认；macOS 依赖其 WebView 对无发起者导航的同站判定，尚未实测。
 
 ## 获取
 
