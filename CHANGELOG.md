@@ -3,6 +3,17 @@
 Release Notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## 0.0.9 - 2026-09-19
+
+### 新增
+
+- 市场条目声明详情页截图：新增 `plugins/dsh-desktop-app/screenshots.json` 与 `assets/screenshot-1-launcher.png`。
+
+### 维护
+
+- 发布说明改从默认分支的 `CHANGELOG.md` 生成，不再取自 tag：改过的旧条目不会再被重跑还原。
+- 两份 changelog 的条目改为一行一条、只写改了什么；README 把「平台与兼容性」移到「获取」之前。
+
 ## 0.0.8 - 2026-09-17
 
 ### 新增

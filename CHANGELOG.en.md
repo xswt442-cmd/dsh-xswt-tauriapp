@@ -3,6 +3,17 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## 0.0.9 - 2026-09-19
+
+### Added
+
+- The marketplace entry declares storefront screenshots: `plugins/dsh-desktop-app/screenshots.json` and `assets/screenshot-1-launcher.png`.
+
+### Maintenance
+
+- Release notes are generated from the default branch's `CHANGELOG.md` rather than the tag's, so a corrected older entry is no longer undone by a re-run.
+- Changelog entries are one line each and state the change; the README puts platform support before the install instructions.
+
 ## 0.0.8 - 2026-09-17
 
 ### Added
