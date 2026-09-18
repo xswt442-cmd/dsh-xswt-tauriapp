@@ -10,30 +10,30 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The port can be chosen at launch: the default is the first free port of `3080`–`3129`, or the one typed last, and any other port can be typed instead.
 - Port availability is decided before launch and reported as reusable, occupied, not enterable (a dsh whose session this machine cannot adopt), or below `1024`.
 - A port typed by hand is remembered as the next default.
-- Self-update: picks this platform's installer from the repository's releases and hands it over only once it matches the published `SHA256SUMS`; with none for this platform it opens the release page, and a bad or missing checksum file is refused.
-- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that downloads and verifies this platform's installer on the first dsh start and hands it to the system installer; an existing install, no desktop session, or no installer here gets one line instead.
+- Self-update: a new version is offered above the version columns, and this platform's installer is picked from the repository's releases and handed over only once it matches the published `SHA256SUMS`; with none for this platform the release page opens instead, and a bad or missing checksum file is refused without writing anything.
+- A marketplace entry `plugins/dsh-desktop-app/`: a zero-dependency stub declaring `dsh.bundle` that fetches `SHA256SUMS` on the first dsh start and writes this platform's installer only once the digest matches, then hands it to the system installer; an existing install, no desktop session, or no installer here only gets one line. It installs nothing silently and imports no harness API.
 
 ### Changed
 
 - The dialog now appears on every launch ("启动 dsh" / "打开 dsh"), and the update check runs alongside the port scan.
-- Discovery candidates now come from the file names in `$DSH_HOME/launcher/logs` instead of a sweep of `3080`–`3129`, with a shorter connect timeout for the scan.
+- Discovery candidates now come from the file names in `$DSH_HOME/launcher/logs` instead of a sweep of `3080`–`3129`, with its own shorter connect timeout for the scan; an unusual port is found again next launch.
 
 ### Fixed
 
-- A menu or tray that fails to build no longer stops the application from starting.
+- A menu or tray that fails to build no longer stops the application from starting, which it did on a desktop without a StatusNotifier host.
 - The dialog's "installed at" line shows the resolved dsh launcher rather than the loopback URL.
 - Version comparison strips the tag's `v` prefix and requires both sides to parse as semver, so the running build is no longer offered back as an update.
 
 ### Maintenance
 
-- The release workflow gained a `stub` job that attaches the marketplace stub under its version-free name and asserts the tarball carries `dsh.bundle` and its `cordis.patch.yml`; the tag contract now covers five version fields.
-- The duplicate `## Unreleased` sections in both changelogs are merged into one; `release-notes.mjs` takes only the first match.
+- The release workflow gained a `stub` job that attaches the marketplace stub as the version-free `dsh-xswt-tauriapp-plugin.tgz` and asserts the tarball carries `dsh.bundle` and its `cordis.patch.yml`; the tag contract now covers five version fields, adding `plugins/dsh-desktop-app/package.json`.
+- The duplicate `## Unreleased` sections — two in each changelog — are merged into one; `scripts/release-notes.mjs` takes only the first match.
 
 ## 0.0.7 - 2026-09-17
 
 ### Fixed
 
-- The app and its installers carry the project's own icon now: the set is generated with `tauri icon` (`icon.ico` up to 256px), and both NSIS installer icons are named.
+- The app and its installers carry the project's own icon now: the set is generated with `tauri icon` (`icon.ico` up to 256px), and the NSIS installer and uninstaller icons are named.
 - The release workflow moved to each action's Node 24 release, clearing the Node 20 deprecation warnings.
 
 ## 0.0.6 - 2026-09-16
@@ -83,7 +83,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
-- A failed hand-off no longer stops on dsh's 401 text: that page is recognised and the address resolved again for one retry.
+- The retry after a failed hand-off now happens on the dsh origin, so the `SameSite=Strict` session cookie travels with it instead of stopping on the 401 text.
 
 ## 0.0.2 - 2026-09-16
 
