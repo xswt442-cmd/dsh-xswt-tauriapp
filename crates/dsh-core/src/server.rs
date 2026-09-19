@@ -37,11 +37,6 @@ pub const MAX_PORT: u16 = 3129;
 /// Below this a bind needs privileges a launched desktop app does not have, so
 /// it is refused up front rather than left to fail inside dsh.
 pub const MIN_PORT: u16 = 1024;
-/// How long a TCP connect may take before the port counts as closed.
-///
-/// Used where a false "free" would be costly — `find_free_port` picks a port to
-/// bind, and a wrong answer there turns into dsh failing to start.
-pub const CONNECT_TIMEOUT: Duration = Duration::from_millis(800);
 /// How long a TCP connect may take while *looking for* an existing server.
 ///
 /// Shorter on purpose. A listening loopback socket accepts in microseconds, so
@@ -237,6 +232,20 @@ pub fn probe_port(port: u16, timeout: Duration) -> bool {
         Err(_) => return false,
     };
     TcpStream::connect_timeout(&addr, timeout).is_ok()
+}
+
+/// Whether a server can actually bind `port` on loopback.
+///
+/// Different question from [`probe_port`], and the one that matters when the
+/// answer decides where a server is about to be started. A connect probe asks
+/// whether something is *listening* right now; a port it reports free can still
+/// refuse the bind — a listener from an earlier attempt may not have settled
+/// yet — and the child then dies with `EADDRINUSE` while this shell is waiting
+/// for its UI to come up. Binding here is the operation the server is about to
+/// perform, so it fails in exactly the cases the server would, and needs no
+/// timeout to be right.
+pub fn can_bind(port: u16) -> bool {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_ok()
 }
 
 /// The startup token for `port`, read from the tail of its server log.
@@ -472,9 +481,9 @@ pub fn find_running_url() -> Option<(u16, String)> {
     find_running_session().map(|session| (session.port, session.url))
 }
 
-/// The first port of the band with nothing listening on it.
+/// The first port of the band a server can be started on.
 pub fn find_free_port() -> Option<u16> {
-    (START_PORT..=MAX_PORT).find(|port| !probe_port(*port, CONNECT_TIMEOUT))
+    (START_PORT..=MAX_PORT).find(|port| can_bind(*port))
 }
 
 /// What would happen on a port the user picked.
@@ -543,7 +552,7 @@ pub fn plan(last_chosen: Option<u16>) -> Result<Plan, String> {
         });
     }
     let suggested_port = last_chosen
-        .filter(|port| *port >= MIN_PORT && !probe_port(*port, CONNECT_TIMEOUT))
+        .filter(|port| *port >= MIN_PORT && can_bind(*port))
         .or_else(find_free_port)
         .ok_or_else(|| format!("{START_PORT}–{MAX_PORT} 端口全部被占用，没有可用端口。"))?;
     Ok(Plan {
@@ -647,10 +656,21 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_port, cookie_pair, logged_ports, node_prefix_of, PortChoice, PortMemory, Session,
-        MIN_PORT,
+        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, PortChoice, PortMemory,
+        Session, MIN_PORT,
     };
     use std::path::Path;
+
+    #[test]
+    fn a_port_something_is_listening_on_cannot_be_bound() {
+        // The reason `can_bind` exists rather than a longer connect probe: it is
+        // the bind the server is about to attempt, so it is refused in exactly
+        // the cases that server would be.
+        let listener =
+            std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind");
+        let port = listener.local_addr().expect("address").port();
+        assert!(!can_bind(port));
+    }
 
     #[test]
     fn the_node_prefix_is_read_off_the_launcher() {
@@ -892,7 +912,9 @@ where
         progress(&format!("已复用端口 {port} 上的 dsh 服务"));
         return Ok(Launch::Reused(session));
     }
-    if probe_port(port, CONNECT_TIMEOUT) {
+    if !can_bind(port) {
+        // Not `probe_port`: the question is whether dsh can bind here, and a
+        // connect probe that says "nobody is listening" is not an answer to it.
         return Err(format!("端口 {port} 已被其他程序占用。"));
     }
     progress(&format!("正在端口 {port} 启动 dsh 服务…"));

@@ -32,8 +32,9 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   `$DSH_HOME/launcher/logs/server-<port>.out.log`, two-step handshake, detached server
   that outlives the window. **Candidate ports come from those log file names**, not from a
   sweep of 3080–3129: no log means no token, and only a log records a port outside the
-  band. `SCAN_CONNECT_TIMEOUT` scans; `CONNECT_TIMEOUT` is `find_free_port`, where a false
-  "free" becomes dsh failing to bind.
+  band. `SCAN_CONNECT_TIMEOUT` scans for what is already listening; picking a port to
+  start on is `can_bind`, not a connect probe — a port nobody is listening on can still
+  refuse the server's own bind, and no timeout makes that answer right.
 - The port is the user's: `discover` offers and starts nothing, `start_server` acts on the
   answer. Only a **typed** port is remembered — accepting the default must leave the
   suggestion free to keep tracking the first free port. Listening but not enterable is

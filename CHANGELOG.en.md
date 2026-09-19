@@ -9,6 +9,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - Update checks and "update and restart" are async commands: a registry request or an `npm install -g` no longer runs inside the webview's IPC callback, so the window stays responsive throughout.
 - The marketplace stub takes the host platform and architecture as parameters, so the "no desktop session, do not download" branch is no longer only exercised where the tests happen to run; `node --test` passes on Windows and macOS too.
+- Picking a port to start on binds it instead of probing for a listener: while an earlier instance's listener is still settling, a connect probe reports the port free and the child then exited with `EADDRINUSE`.
 
 ## 0.0.9 - 2026-09-19
 

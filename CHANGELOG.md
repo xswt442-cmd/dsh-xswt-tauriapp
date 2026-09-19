@@ -9,6 +9,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 - 更新检查与「更新并重启」改为异步命令：registry 请求和 `npm install -g` 不再跑在 webview 的 IPC 回调里，窗口不再在此期间无响应。
 - 市场条目把宿主平台与架构改为可注入参数：「无桌面环境则不下载」这条分支此前只在 Linux 上被测到，`node --test` 在 Windows 与 macOS 上会失败。
+- 选择启动端口改为实际 bind 一次，不再用 connect 探测：上一次实例的 listener 尚未释放时 connect 会误报空闲，子进程随后以 `EADDRINUSE` 退出。
 
 ## 0.0.9 - 2026-09-19
 
