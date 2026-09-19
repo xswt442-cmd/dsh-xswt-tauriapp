@@ -269,17 +269,25 @@ function openInstaller(path, platform = process.platform, log = console.log) {
  * Every exit is a log line, and the only writes are the installer (after its
  * digest matched) and the state file under `$DSH_HOME`. Exported through
  * `internals` so the tests can drive it against a stand-in release server.
+ *
+ * The platform is a parameter like `env` is, not a global: which asset a machine
+ * installs from and whether it has a desktop are both answers about a *host*, and
+ * a test that cannot name the host can only assert what happens on the machine
+ * running it — which is how a headless check passed on Linux and failed
+ * everywhere else.
  * @param config - resolved `{ mode, open }`.
  * @param env - the environment to read; the tests pass a fixture.
  * @param log - where to report.
+ * @param platform - `process.platform`; the tests name the host they mean.
+ * @param arch - `process.arch`.
  */
-async function run(config, env = process.env, log = console.log) {
+async function run(config, env = process.env, log = console.log, platform = process.platform, arch = process.arch) {
   if (config.mode === 'off') return
-  if (isInstalled(process.platform, env)) return
+  if (isInstalled(platform, env)) return
 
-  const suffix = installerSuffix(process.platform, process.arch)
-  if (suffix === undefined || !hasDesktop(process.platform, env)) {
-    log(`${PREFIX} no installer to run on ${process.platform}/${process.arch}; download one from ${RELEASES_PAGE}`)
+  const suffix = installerSuffix(platform, arch)
+  if (suffix === undefined || !hasDesktop(platform, env)) {
+    log(`${PREFIX} no installer to run on ${platform}/${arch}; download one from ${RELEASES_PAGE}`)
     return
   }
 
@@ -315,10 +323,10 @@ async function run(config, env = process.env, log = console.log) {
   log(`${PREFIX} verified ${installer.name} against ${CHECKSUMS}: ${path}`)
 
   if (!config.open || env.DSH_TAURIAPP_NO_OPEN === '1') {
-    log(`${PREFIX} open it yourself with: ${manualCommand(path)}`)
+    log(`${PREFIX} open it yourself with: ${manualCommand(path, platform)}`)
     return
   }
-  openInstaller(path, process.platform, log)
+  openInstaller(path, platform, log)
   log(`${PREFIX} handed the installer to the system; finish it there (nothing opened? ${manualCommand(path)})`)
 }
 

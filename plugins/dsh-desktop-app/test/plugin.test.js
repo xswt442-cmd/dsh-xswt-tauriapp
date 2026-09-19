@@ -27,11 +27,13 @@ const home = (label) => join(root, label)
  * `SHA256SUMS`, one installer, and a request log so a test can prove what was
  * and was not fetched.
  * @param sums - `'good'` to publish the real digest, anything else to publish a lie.
+ * @param platform - the host the stand-in publishes an installer for.
+ * @param arch - the host's architecture.
  */
-async function standIn(sums = 'good') {
+async function standIn(sums = 'good', platform = process.platform, arch = process.arch) {
   const bytes = Buffer.from('a stand-in installer, never executed\n')
   const digest = createHash('sha256').update(bytes).digest('hex')
-  const suffix = internals.installerSuffix()
+  const suffix = internals.installerSuffix(platform, arch)
   const installerName = `${APP}_0.0.99${suffix}`
   const requests = []
   const server = createServer()
@@ -167,7 +169,7 @@ describe('configuration', () => {
 
 describe('a first start after installation', () => {
   it('downloads, verifies, records, and stays quiet afterwards', async () => {
-    const release = await standIn()
+    const release = await standIn('good', 'linux', 'x64')
     const env = {
       DSH_HOME: home('first'),
       DISPLAY: ':0',
@@ -176,7 +178,7 @@ describe('a first start after installation', () => {
     }
     const lines = []
     try {
-      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line))
+      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
 
       assert.deepEqual(release.requests, [
         '/releases/latest',
@@ -193,7 +195,7 @@ describe('a first start after installation', () => {
       // and it must still say where the earlier download went.
       const second = []
       const before = release.requests.length
-      await internals.run({ mode: 'auto', open: true }, env, (line) => second.push(line))
+      await internals.run({ mode: 'auto', open: true }, env, (line) => second.push(line), 'linux', 'x64')
       assert.equal(release.requests.length, before)
       assert.ok(second.some((line) => line.includes(release.installerPath)))
     } finally {
@@ -203,7 +205,7 @@ describe('a first start after installation', () => {
   })
 
   it('refuses a download the release did not vouch for, and writes nothing', async () => {
-    const release = await standIn('bad')
+    const release = await standIn('bad', 'linux', 'x64')
     const env = {
       DSH_HOME: home('bad'),
       DISPLAY: ':0',
@@ -211,7 +213,10 @@ describe('a first start after installation', () => {
       DSH_TAURIAPP_NO_OPEN: '1',
     }
     try {
-      await assert.rejects(internals.run({ mode: 'auto', open: true }, env, () => {}), /failed verification/)
+      await assert.rejects(
+        internals.run({ mode: 'auto', open: true }, env, () => {}, 'linux', 'x64'),
+        /failed verification/,
+      )
       assert.equal(existsSync(release.installerPath), false)
       assert.equal(existsSync(internals.statePath(env)), false)
     } finally {
@@ -220,11 +225,11 @@ describe('a first start after installation', () => {
   })
 
   it('says where to look instead of downloading on a machine with no desktop', async () => {
-    const release = await standIn()
+    const release = await standIn('good', 'linux', 'x64')
     const env = { DSH_HOME: home('headless'), DSH_TAURIAPP_RELEASES_API: release.api }
     const lines = []
     try {
-      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line))
+      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
       assert.deepEqual(release.requests, [])
       assert.ok(lines.some((line) => line.includes(internals.RELEASES_PAGE)))
     } finally {
@@ -233,11 +238,11 @@ describe('a first start after installation', () => {
   })
 
   it('downloads nothing at all in notice mode', async () => {
-    const release = await standIn()
+    const release = await standIn('good', 'linux', 'x64')
     const env = { DSH_HOME: home('notice'), DISPLAY: ':0', DSH_TAURIAPP_RELEASES_API: release.api }
     const lines = []
     try {
-      await internals.run({ mode: 'notice', open: true }, env, (line) => lines.push(line))
+      await internals.run({ mode: 'notice', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
       assert.deepEqual(release.requests, [])
       assert.ok(lines.some((line) => line.includes(internals.RELEASES_PAGE)))
     } finally {
