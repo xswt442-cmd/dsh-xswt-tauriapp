@@ -3,6 +3,12 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Fixed
+
+- Update checks and "update and restart" are async commands: a registry request or an `npm install -g` no longer runs inside the webview's IPC callback, so the window stays responsive throughout.
+
 ## 0.0.9 - 2026-09-19
 
 ### Added

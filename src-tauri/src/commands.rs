@@ -115,15 +115,32 @@ pub async fn start_server(
 }
 
 /// Re-run the update check on demand (the dialog's "重新检查").
+///
+/// `async` for the same reason `check_port` is: the registry call blocks for as
+/// long as its timeout allows, and a synchronous command runs that inside the
+/// webview's IPC callback, on the main thread, with the window frozen.
+///
+/// `Result` rather than the payload itself, because a `State` argument makes this
+/// a command with a reference input, and Tauri requires those to be fallible.
 #[tauri::command]
-pub fn check_updates(app: AppHandle, shell: State<'_, SharedShell>) -> UpdatePayload {
-    update::refresh(&app, shell.inner())
+pub async fn check_updates(
+    app: AppHandle,
+    shell: State<'_, SharedShell>,
+) -> Result<UpdatePayload, String> {
+    // The shared handle is cloned out before the first await: a future must own
+    // everything it holds, and `State` is a borrow of the app's managed state.
+    let shared = shell.inner().clone();
+    Ok(update::refresh(&app, &shared))
 }
 
 /// Re-run the check for a newer build of this application.
 #[tauri::command]
-pub fn check_self_update(app: AppHandle, shell: State<'_, SharedShell>) -> SelfUpdatePayload {
-    update::refresh_self(&app, shell.inner())
+pub async fn check_self_update(
+    app: AppHandle,
+    shell: State<'_, SharedShell>,
+) -> Result<SelfUpdatePayload, String> {
+    let shared = shell.inner().clone();
+    Ok(update::refresh_self(&app, &shared))
 }
 
 /// Stop reminding about one build of this application.
@@ -193,9 +210,16 @@ pub fn dismissed_versions(shell: State<'_, SharedShell>) -> Vec<String> {
 }
 
 /// Install one dsh version globally, then restart so the new launcher is used.
+///
+/// `async` for the same reason, and `spawn_blocking` on top of it: `npm install
+/// -g` runs for minutes, and an async command would still hold one of the async
+/// runtime's worker threads for all of it. Handing the wait to the blocking pool
+/// keeps both the main thread and the worker pool free.
 #[tauri::command]
-pub fn apply_update(app: AppHandle, version: String) -> Result<(), String> {
-    update::install(&app, &version)
+pub async fn apply_update(app: AppHandle, version: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || update::install(&app, &version))
+        .await
+        .map_err(|error| format!("更新任务未能完成：{error}"))?
 }
 
 /// Restart the harness without updating anything.

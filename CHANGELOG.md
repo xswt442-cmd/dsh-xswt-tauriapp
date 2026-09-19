@@ -3,6 +3,12 @@
 Release Notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## Unreleased
+
+### 修复
+
+- 更新检查与「更新并重启」改为异步命令：registry 请求和 `npm install -g` 不再跑在 webview 的 IPC 回调里，窗口不再在此期间无响应。
+
 ## 0.0.9 - 2026-09-19
 
 ### 新增
