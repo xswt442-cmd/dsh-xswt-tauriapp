@@ -427,6 +427,23 @@ pub fn is_internal(url: &tauri::Url) -> bool {
     }
 }
 
+/// The bootstrap window's own origins, and nothing else.
+///
+/// Much narrower than [`is_internal`] on purpose. The bootstrap page is the only
+/// window a capability is granted to, so anything allowed to load in it can call
+/// the shell's commands — and `is_internal` waves through *any* loopback port,
+/// which on a shared machine belongs to whichever program claimed it. The page
+/// needs exactly one origin: the assets it was bundled with.
+pub fn is_shell_asset(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "asset" => true,
+        // Windows serves the bundled assets over http://tauri.localhost. That one
+        // host, not the whole `.localhost` space.
+        "http" | "https" => url.host_str().is_some_and(|host| host == "tauri.localhost"),
+        _ => false,
+    }
+}
+
 /// Hand a URL to the desktop's default handler.
 ///
 /// Deliberately not `tauri-plugin-opener`: the whole shell only ever needs
@@ -450,7 +467,7 @@ pub fn open_external(url: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_internal;
+    use super::{is_internal, is_shell_asset};
 
     fn url(value: &str) -> tauri::Url {
         value.parse().expect("test URL must parse")
@@ -473,6 +490,19 @@ mod tests {
         assert!(is_internal(&url("http://127.0.0.1:3080/")));
         assert!(is_internal(&url("http://localhost:3129/")));
         assert!(is_internal(&url("http://127.0.0.1:3082/xswt-bg/sky.jpg")));
+    }
+
+    #[test]
+    fn the_bootstrap_window_accepts_only_its_own_assets() {
+        // The window the capability belongs to. `is_internal` would also allow
+        // every loopback port, which is whoever claimed it, not the shell.
+        assert!(is_shell_asset(&url("tauri://localhost/index.html")));
+        assert!(is_shell_asset(&url("http://tauri.localhost/index.html")));
+        assert!(!is_shell_asset(&url("http://127.0.0.1:3080/")));
+        assert!(!is_shell_asset(&url("http://localhost:3080/")));
+        // One host, not a suffix: another `*.localhost` is somebody else's page.
+        assert!(!is_shell_asset(&url("http://not-the-shell.localhost/")));
+        assert!(!is_shell_asset(&url("https://github.com/deepseek-ai")));
     }
 
     #[test]

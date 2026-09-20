@@ -70,8 +70,10 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
     // visible step.
     .background_color(tauri::window::Color(0x17, 0x1b, 0x28, 0xff))
     .on_navigation(|url| {
-        // The page is local; anything else is a link out.
-        if guest::is_internal(url) {
+        // This window carries the only capability, so its policy is its own and
+        // narrower than the guest's: the bundled assets, nothing else. A loopback
+        // port is not the shell's to load in here.
+        if guest::is_shell_asset(url) {
             return true;
         }
         guest::open_external(url.as_str());
