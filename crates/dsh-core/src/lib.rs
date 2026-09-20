@@ -14,7 +14,10 @@
 //!   user asked not to be reminded about.
 //! * [`self_update`] — the same question about *this* application, answered from
 //!   its own GitHub releases rather than from npm.
+//! * [`zoom`] — the guest window's zoom factor: its bounds, the value to start
+//!   at, and the file it is remembered in.
 
 pub mod self_update;
 pub mod server;
 pub mod updates;
+pub mod zoom;

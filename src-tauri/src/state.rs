@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{self_update, server, updates};
+use dsh_xswt_tauriapp_core::{self_update, server, updates, zoom};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -137,6 +137,8 @@ pub struct Shell {
     /// Zoom factor of the guest window, tracked here because the webview has no
     /// getter for it.
     pub zoom: f64,
+    /// Where that factor is remembered between launches.
+    pub zoom_memory: zoom::ZoomMemory,
 }
 
 impl Default for Shell {
@@ -151,6 +153,7 @@ impl Default for Shell {
             self_dismiss: updates::DismissStore::default(),
             self_pending: None,
             zoom: 1.0,
+            zoom_memory: zoom::ZoomMemory::default(),
         }
     }
 }

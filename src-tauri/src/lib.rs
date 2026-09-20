@@ -30,7 +30,7 @@ mod update;
 
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{server, updates};
+use dsh_xswt_tauriapp_core::{server, updates, zoom};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Log a harness event.
@@ -108,6 +108,30 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         .map(server::PortMemory::load)
         .unwrap_or_default();
 
+    // The guest window's zoom factor. Remembered because the display scale it
+    // has to compensate for is a property of the machine, not of the session —
+    // WSLg renders at scale 1 whatever the Windows display scale is — and
+    // `DSH_SHELL_ZOOM` pins it for a session configured as a whole.
+    let zoom_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("zoom.json"));
+    let zoom_memory = zoom_path
+        .as_ref()
+        .map(zoom::ZoomMemory::load)
+        .unwrap_or_default();
+    let zoom_env = std::env::var(zoom::ZOOM_ENV).ok();
+    let zoom_factor = zoom::initial(Some(zoom_memory.factor()), zoom_env.as_deref());
+    shell_log!(
+        "[dsh-harness] guest zoom {zoom_factor} (remembered {}, {})",
+        zoom_memory.factor(),
+        match zoom_env {
+            Some(_) => format!("pinned by {}", zoom::ZOOM_ENV),
+            None => "not pinned".to_string(),
+        },
+    );
+
     // A second store, not a second entry in the first one: "don't remind me
     // about dsh 0.1.5-rc.2" must not silence an update to this application.
     let self_dismiss_path = app
@@ -143,6 +167,8 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         dismiss_path,
         port_memory,
         self_dismiss,
+        zoom: zoom_factor,
+        zoom_memory,
         ..Default::default()
     }))
 }

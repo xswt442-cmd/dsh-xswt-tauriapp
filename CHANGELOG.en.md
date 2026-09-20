@@ -5,6 +5,10 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+### Added
+
+- The guest window's zoom factor is remembered: `Ctrl/Cmd+=` / `-` / `0` persist to the application config directory and survive a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins over the remembered value.
+
 ### Fixed
 
 - Update checks and "update and restart" are async commands: a registry request or an `npm install -g` no longer runs inside the webview's IPC callback, so the window stays responsive throughout.

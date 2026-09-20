@@ -53,7 +53,10 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 - Linux takes the X11 backend whenever `DISPLAY` exists (`prefer_x11`) — Wayland-native
   keys never reach X11's grabs; `DSH_SHELL_WAYLAND=1` opts out. A tray icon needs a
   StatusNotifier host, which WSLg lacks.
-- No `zoom_hotkeys_enabled` (it injects a polyfill): zoom goes through `set_zoom`.
+- No `zoom_hotkeys_enabled` (it injects a polyfill): zoom goes through `set_zoom`, with the
+  factor remembered under the config dir and `DSH_SHELL_ZOOM` pinning it for a session (the
+  environment wins). WSLg renders at scale 1 whatever Windows is scaled to, which is the case
+  that made remembering it worth doing.
 - Never offer an update from a channel less stable than the installed one, and scope
   "don't remind me" to one version.
 - Two update paths, two stores: dsh from npm (`updates`), this application from its own

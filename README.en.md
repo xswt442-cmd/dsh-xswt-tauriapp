@@ -29,7 +29,7 @@ A lightweight Tauri desktop shell for DeepSeek Harness, and a **desktop harness 
 | Linux (deb / rpm / AppImage) | Supported; produced by CI. The session hand-off and first navigation are exercised |
 | Windows (NSIS installer) | Supported; the installer and GUI are exercised in daily use, and the hand-off and first navigation have been measured |
 | macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
-| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used |
+| WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used. WSLg also renders at scale 1 whatever the Windows display scale is, so on a 125% or 150% display its windows are smaller than native ones: zoom with `Ctrl/Cmd+=`, which is remembered, or pin `DSH_SHELL_ZOOM` |
 
 That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK and on Windows / WebView2; macOS relies on its webview treating an initiator-less navigation as same-site, which has not been measured.
 
@@ -130,7 +130,7 @@ Tauri can bind a keyboard shortcut only through a menu accelerator, and on Windo
 
 On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
 
-Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule.
+Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins.
 
 ### Updates to this application itself
 

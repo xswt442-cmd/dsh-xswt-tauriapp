@@ -5,6 +5,10 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ## Unreleased
 
+### 新增
+
+- 记住缩放因子：`Ctrl/Cmd+=` / `-` / `0` 的结果存入应用配置目录，重启后仍然生效；`DSH_SHELL_ZOOM` 可为一次会话指定初值，环境变量优先于记忆值。
+
 ### 修复
 
 - 更新检查与「更新并重启」改为异步命令：registry 请求和 `npm install -g` 不再跑在 webview 的 IPC 回调里，窗口不再在此期间无响应。

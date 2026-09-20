@@ -29,7 +29,7 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness
 | Linux（deb / rpm / AppImage） | 支持，由 CI 产出；会话交接与首次导航已实测 |
 | Windows（NSIS 安装包） | 支持；安装包与 GUI 已在真机日常使用中验证，交接与首次导航均已实测 |
 | macOS（dmg） | 构建已接入，未签名；GUI 未实测 |
-| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg 没有状态栏宿主，托盘图标无处显示；快捷键可用，前提是走 X11 后端 |
+| WSLg | 可运行；WebKitGTK 的 GPU 直通不稳，需设 `WEBKIT_DISABLE_COMPOSITING_MODE=1` 与 `WEBKIT_DISABLE_DMABUF_RENDERER=1`。WSLg 没有状态栏宿主，托盘图标无处显示；快捷键可用，前提是走 X11 后端。WSLg 一律按 scale 1 渲染，与 Windows 的显示缩放无关，所以在 125% / 150% 的显示器上窗口比原生应用小：用 `Ctrl/Cmd+=` 缩放即可，因子会被记住，也可用 `DSH_SHELL_ZOOM` 固定 |
 
 首次导航发送 `SameSite=Strict` cookie 的行为已在 Linux / WebKitGTK 与 Windows / WebView2 上实测确认；macOS 依赖其 WebView 对无发起者导航的同站判定，尚未实测。
 
@@ -130,7 +130,7 @@ Tauri 的快捷键只能挂在菜单 accelerator 上，而 Windows / Linux 上�
 
 Linux 上另有一个前提：`global-hotkey` 通过 X11 抓键，而 Wayland 原生窗口的按键不经过 X 服务器，快捷键会注册成功但永不触发。外壳因此在有 `DISPLAY` 时默认使用 X11 后端（XWayland 在所有 Wayland 桌面上都存在），设置 `DSH_SHELL_WAYLAND=1` 可退出该行为；显式设置 `GDK_BACKEND` 时外壳不干预。
 
-缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上依赖向页面注入 polyfill，与本项目的不注入原则冲突。
+缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上依赖向页面注入 polyfill，与本项目的不注入原则冲突。缩放因子会被记住（存于应用配置目录），重启后仍然生效；也可以用 `DSH_SHELL_ZOOM` 指定初值，此时环境变量优先。
 
 ### 外壳自身的更新
 
