@@ -20,6 +20,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The marketplace stub decides "already installed" from the fixture too: the Linux and macOS candidates were absolute paths (`/usr/bin`, `/Applications`), so on a machine that has the shell installed — which is what trying it means — the "not installed, so download" tests started failing (six of them here).
 - The marketplace stub recognises WSL, where `xdg-open` cannot install a `.deb`: it says so, and points a Windows desktop at the `*-setup.exe` asset instead.
 - A failed hand-off is no longer silent: an opener that exits non-zero is logged, which is how `xdg-open` exits when nothing handles a `.deb`.
+- Updating dsh on Windows no longer fails with `os error 193` ("not a valid Win32 application"): npm's shims cannot be started by `CreateProcess`, so the executable is chosen per platform (Windows prefers `npm.cmd`, never the extensionless POSIX script) and a `.cmd` runs through `cmd.exe /d /s /c` — with no console window.
 
 ### Security
 

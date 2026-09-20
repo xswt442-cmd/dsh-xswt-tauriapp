@@ -239,8 +239,20 @@ fn npm_for_update() -> Result<PathBuf, String> {
 }
 
 /// The npm executable in `dir`, whichever name the platform uses.
+///
+/// npm installs `npm`, `npm.cmd` and `npm.ps1` side by side everywhere, so the
+/// answer is the platform's and not the directory listing's: the extensionless
+/// `npm` is a POSIX shell script, and on Windows handing that to `CreateProcess`
+/// is the `os error 193` ("不是有效的 Win32 应用程序") this used to report.
+/// `npm.cmd` is the one Windows runs, and it runs through the interpreter — see
+/// [`updates::install_command`].
 fn npm_in(dir: &std::path::Path) -> Option<PathBuf> {
-    ["npm", "npm.cmd", "npm.exe"]
+    let names: &[&str] = if cfg!(windows) {
+        &["npm.cmd", "npm.exe", "npm"]
+    } else {
+        &["npm"]
+    };
+    names
         .iter()
         .map(|name| dir.join(name))
         .find(|candidate| candidate.is_file())
@@ -253,10 +265,23 @@ fn npm_in(dir: &std::path::Path) -> Option<PathBuf> {
 /// whichever prefix some other npm on `PATH` happens to own.
 pub fn install(app: &AppHandle, version: &str) -> Result<(), String> {
     let npm = npm_for_update()?;
+    // Kept for the message: on Windows the argv is a re-parsed command line, and
+    // quoting that back at the user would explain less than the install it means.
+    let argv = updates::install_argv(version)?;
+    let spec = updates::install_command(&npm, version, std::env::consts::OS)?;
 
-    let args = updates::install_argv(version)?;
-    let output = Command::new(&npm)
-        .args(&args)
+    let mut command = Command::new(install_program(&spec));
+    command.args(&spec.args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // An npm install is plumbing; a console window that flashes for its
+        // duration is not something the user asked for.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command
         .output()
         .map_err(|error| format!("执行 npm 失败：{error}"))?;
     if !output.status.success() {
@@ -265,11 +290,28 @@ pub fn install(app: &AppHandle, version: &str) -> Result<(), String> {
         return Err(format!(
             "{} {} 失败（退出码 {:?}）\n{}\n{}",
             npm.display(),
-            args.join(" "),
+            argv.join(" "),
             output.status.code(),
             stdout.trim(),
             stderr.trim()
         ));
     }
     app.restart()
+}
+
+/// The interpreter to run an install with.
+///
+/// `cmd.exe` is taken from the environment when the session names one, so the
+/// interpreter Windows ships is the one used rather than whichever `cmd.exe` the
+/// search path happens to find.
+fn install_program(spec: &updates::InstallCommand) -> std::ffi::OsString {
+    #[cfg(windows)]
+    {
+        if spec.program == std::path::Path::new("cmd.exe") {
+            if let Some(comspec) = std::env::var_os("ComSpec") {
+                return comspec;
+            }
+        }
+    }
+    spec.program.clone().into_os_string()
 }
