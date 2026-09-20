@@ -15,7 +15,9 @@ manifest, and on the **first `dsh` start after installation** it
 4. hands the verified file to the operating system — `start` on Windows, `open` on macOS, `xdg-open`
    on Linux — and records that it did so in `$DSH_HOME/dsh-xswt-tauriapp/plugin.json`.
 
-Every later start is silent.
+Every later start is silent. On WSL the Linux asset is a `.deb`, which `xdg-open` cannot install: the
+plugin says so, names the `sudo apt install <path>` that does, and points at the Windows installer if
+the desktop is the Windows one. A hand-off that fails is a log line, never a no-op.
 
 ## What it deliberately does not do
 

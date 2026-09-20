@@ -119,6 +119,15 @@ describe('the platform contract', () => {
     assert.match(internals.manualCommand('/tmp/x.dmg', 'darwin'), /^open /)
     assert.match(internals.manualCommand('C:\\x.exe', 'win32'), /^start /)
   })
+
+  it('recognises WSL, from the environment or from the host itself', () => {
+    assert.equal(internals.isWsl({ WSL_DISTRO_NAME: 'Ubuntu' }), true)
+    assert.equal(internals.isWsl({ WSL_INTEROP: '/run/WSL/1_interop' }), true)
+    // A fixture describes a host, so the `/proc/version` fallback must not answer
+    // for it — otherwise this suite would pass on WSL and fail everywhere else.
+    assert.equal(internals.isWsl({}), false)
+    assert.equal(internals.isWsl({ DSH_HOME: '/tmp/home', DISPLAY: ':0' }), false)
+  })
 })
 
 describe('reading the release', () => {
@@ -233,6 +242,48 @@ describe('a first start after installation', () => {
       assert.deepEqual(release.requests, [])
       assert.ok(lines.some((line) => line.includes(internals.RELEASES_PAGE)))
     } finally {
+      await release.close()
+    }
+  })
+
+  it('tells a WSL host how to finish a .deb, which xdg-open cannot install', async () => {
+    const release = await standIn('good', 'linux', 'x64')
+    const env = {
+      DSH_HOME: home('wsl'),
+      DISPLAY: ':0',
+      WSL_DISTRO_NAME: 'Ubuntu',
+      DSH_TAURIAPP_RELEASES_API: release.api,
+      DSH_TAURIAPP_NO_OPEN: '1',
+    }
+    const lines = []
+    try {
+      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
+      assert.ok(lines.some((line) => /apt install/.test(line)))
+      assert.ok(
+        lines.some((line) => /WSL:/.test(line)),
+        'a WSL host is told why the automatic handoff cannot finish',
+      )
+    } finally {
+      rmSync(release.installerPath, { force: true })
+      await release.close()
+    }
+  })
+
+  it('does not blame WSL when it is not on WSL', async () => {
+    const release = await standIn('good', 'linux', 'x64')
+    const env = {
+      DSH_HOME: home('plain-linux'),
+      DISPLAY: ':0',
+      DSH_TAURIAPP_RELEASES_API: release.api,
+      DSH_TAURIAPP_NO_OPEN: '1',
+    }
+    const lines = []
+    try {
+      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
+      assert.ok(lines.some((line) => /apt install/.test(line)))
+      assert.ok(!lines.some((line) => /WSL:/.test(line)))
+    } finally {
+      rmSync(release.installerPath, { force: true })
       await release.close()
     }
   })

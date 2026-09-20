@@ -242,9 +242,14 @@ function manualCommand(path, platform = process.platform) {
  * Hand a verified file to the platform opener. Spawning a detached child is the
  * whole of it: the user answers SmartScreen, Gatekeeper or the package manager,
  * which is exactly the boundary this plugin promises.
+ *
+ * The child is not waited for — an installer window outlives us — but its exit is
+ * not discarded either. `xdg-open` on a machine with no handler for `.deb` runs,
+ * exits non-zero and opens nothing, and a handoff that fails in silence is the one
+ * outcome this module exists to avoid.
  * @param path - the verified installer.
  * @param platform - `process.platform`.
- * @param log - where a failure to spawn is reported.
+ * @param log - where a failed handoff is reported.
  */
 function openInstaller(path, platform = process.platform, log = console.log) {
   const command =
@@ -256,10 +261,51 @@ function openInstaller(path, platform = process.platform, log = console.log) {
   try {
     const child = spawn(command.file, command.args, { detached: true, stdio: 'ignore', windowsHide: true })
     child.on('error', (error) => log(`${PREFIX} could not run ${command.file}: ${error.message}`))
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        log(`${PREFIX} ${command.file} exited ${code} without opening it; finish it yourself with: ${manualCommand(path, platform)}`)
+      }
+    })
     child.unref()
   } catch (error) {
     log(`${PREFIX} could not run ${command.file}: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+/**
+ * Whether this is a WSL distribution.
+ *
+ * The environment is what WSL sets for anything it starts, and `/proc/version` is
+ * the fallback for a process that did not inherit it. The fallback is consulted
+ * only when the caller passed the real environment: a fixture describes a host, it
+ * does not run on one, so a test stays deterministic wherever it runs.
+ * @param env - the environment to read.
+ * @returns whether the host is WSL.
+ */
+function isWsl(env = process.env) {
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true
+  if (env !== process.env) return false
+  try {
+    return readFileSync('/proc/version', 'utf8').toLowerCase().includes('microsoft')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The extra line WSL needs.
+ *
+ * A `.deb` is the right asset for a Linux host, but inside WSL the desktop the
+ * person is looking at is usually the Windows one, and `xdg-open` cannot install a
+ * `.deb` even when it does have a handler. Saying so is the difference between a
+ * silent no-op and a next step.
+ * @param log - where to report.
+ * @param platform - the host the installer was chosen for.
+ * @param env - the environment to read.
+ */
+function logWslHint(log, platform, env) {
+  if (platform !== 'linux' || !isWsl(env)) return
+  log(`${PREFIX} WSL: xdg-open cannot install a .deb — run the apt command above, or take the Windows installer (*-setup.exe) from ${RELEASES_PAGE}`)
 }
 
 /**
@@ -324,10 +370,18 @@ async function run(config, env = process.env, log = console.log, platform = proc
 
   if (!config.open || env.DSH_TAURIAPP_NO_OPEN === '1') {
     log(`${PREFIX} open it yourself with: ${manualCommand(path, platform)}`)
+    logWslHint(log, platform, env)
     return
   }
   openInstaller(path, platform, log)
-  log(`${PREFIX} handed the installer to the system; finish it there (nothing opened? ${manualCommand(path)})`)
+  log(`${PREFIX} handed the installer to the system; finish it there`)
+  if (platform === 'linux') {
+    // Not a footnote on Linux: the opener routinely completes with nothing
+    // visible, and a `.deb` needs root whoever opens it, so this is the line that
+    // works. On Windows and macOS the opener does the job and stays quiet.
+    log(`${PREFIX} if nothing opened: ${manualCommand(path, platform)}`)
+    logWslHint(log, platform, env)
+  }
 }
 
 /**
@@ -361,6 +415,7 @@ export const internals = {
   installedCandidates,
   installerSuffix,
   isInstalled,
+  isWsl,
   manualCommand,
   parseSha256Sums,
   readState,

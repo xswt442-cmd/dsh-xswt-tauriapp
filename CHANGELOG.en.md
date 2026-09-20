@@ -13,6 +13,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - Candidate ports come only from logs written within 90 days: nothing prunes them, so every port the machine had ever used was probed on every launch.
 - A typed port is marked by the page that typed it, rather than inferred from the value (a port typed by hand that happened to equal the suggestion was not remembered); an install target is checked as a version before it becomes an npm argument; the zoom factor carries into the dsh window instead of being lost at the hand-off.
+- The marketplace stub recognises WSL, where `xdg-open` cannot install a `.deb`: it says so, and points a Windows desktop at the `*-setup.exe` asset instead.
+- A failed hand-off is no longer silent: an opener that exits non-zero is logged, which is how `xdg-open` exits when nothing handles a `.deb`.
 
 ### Security
 
