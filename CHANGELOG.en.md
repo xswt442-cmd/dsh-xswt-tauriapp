@@ -11,6 +11,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The marketplace stub takes the host platform and architecture as parameters, so the "no desktop session, do not download" branch is no longer only exercised where the tests happen to run; `node --test` passes on Windows and macOS too.
 - Picking a port to start on binds it instead of probing for a listener: while an earlier instance's listener is still settling, a connect probe reports the port free and the child then exited with `EADDRINUSE`.
 
+- Candidate ports come only from logs written within 90 days: nothing prunes them, so every port the machine had ever used was probed on every launch.
+
 ### Security
 
 - The bootstrap window's navigation policy admits only the bundled assets: it is the only window granted a capability, and any page on any loopback port could previously load there and reach the command surface.

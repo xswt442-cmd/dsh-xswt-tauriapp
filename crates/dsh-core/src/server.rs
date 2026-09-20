@@ -437,14 +437,40 @@ pub fn resolve_ui_url(port: u16) -> Option<String> {
     resolve_session(port).map(|session| session.url)
 }
 
+/// How long a log file keeps naming its port as a candidate.
+///
+/// Long on purpose. Dropping a candidate is not free: if that port is the one
+/// holding a running server, the shell stops finding it and starts a second
+/// instance instead. So the window has to be longer than the logs a machine
+/// accumulates by accident, and only as short as a server's silence is plausible
+/// — a dsh web server that has written nothing for three months is not a case
+/// worth paying for on every launch.
+pub const LOG_PORT_MAX_AGE: Duration = Duration::from_secs(90 * 24 * 60 * 60);
+
+/// Whether a log written at `modified` is still worth reading.
+///
+/// Pure, so the window can be tested without waiting a quarter or reaching for a
+/// file's timestamp. A modification time in the future is a clock that moved,
+/// not evidence about the server, so the file is kept rather than dropped.
+fn recent_enough(modified: std::time::SystemTime, now: std::time::SystemTime) -> bool {
+    match now.duration_since(modified) {
+        Ok(age) => age <= LOG_PORT_MAX_AGE,
+        Err(_) => true,
+    }
+}
+
 /// Ports this machine has run a dsh web server on, most recent log first.
 ///
 /// The log file name carries the port (`server-<port>.out.log`), which makes the
-/// log directory the complete list of ports worth probing: a port with no log
-/// has no launch token, so [`resolve_session`] could never enter a server there
-/// however long it tried. Probing the rest of the band is therefore pure waste —
-/// 50 connects instead of a handful — and it is also what makes a deliberately
+/// log directory the list of ports worth probing: a port with no log has no
+/// launch token, so [`resolve_session`] could never enter a server there however
+/// long it tried. Probing the rest of the band is therefore pure waste — 50
+/// connects instead of a handful — and it is also what makes a deliberately
 /// unusual port discoverable on the next launch.
+///
+/// Only logs recent enough to pass [`recent_enough`] count. Nothing ever deletes
+/// them, so without a window the list would only grow, at one probe per launch
+/// for every port the machine has ever used.
 ///
 /// The one case this gives up is a dsh started by hand in a terminal, whose log
 /// went to that terminal instead, *and* which serves its UI without
@@ -453,6 +479,7 @@ pub fn logged_ports(dir: &Path) -> Vec<u16> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };
+    let now = std::time::SystemTime::now();
     let mut found: Vec<(std::time::SystemTime, u16)> = entries
         .flatten()
         .filter_map(|entry| {
@@ -466,6 +493,10 @@ pub fn logged_ports(dir: &Path) -> Vec<u16> {
             let modified = entry.metadata().ok()?.modified().ok()?;
             Some((modified, port))
         })
+        // Logs are appended to and never removed, so without this the candidate
+        // list only ever grows and every launch pays for every port the machine
+        // has ever used.
+        .filter(|(modified, _)| recent_enough(*modified, now))
         .collect();
     // Newest first: the log written most recently belongs to the server most
     // likely to still be running.
@@ -662,8 +693,8 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, PortChoice, PortMemory,
-        Session, MIN_PORT,
+        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, recent_enough,
+        PortChoice, PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT,
     };
     use std::path::Path;
 
@@ -676,6 +707,23 @@ mod tests {
             std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).expect("bind");
         let port = listener.local_addr().expect("address").port();
         assert!(!can_bind(port));
+    }
+
+    #[test]
+    fn a_window_keeps_recent_logs_and_drops_stale_ones() {
+        use std::time::{Duration, SystemTime};
+        let now = SystemTime::now();
+        assert!(recent_enough(now, now));
+        // The boundary is inside the window, or a log written exactly at it would
+        // flip on the clock rather than on age.
+        assert!(recent_enough(now - LOG_PORT_MAX_AGE, now));
+        // Just past it: the only thing that stops the candidate list growing.
+        assert!(!recent_enough(
+            now - LOG_PORT_MAX_AGE - Duration::from_secs(1),
+            now
+        ));
+        // A modification time ahead of the clock is not evidence about a server.
+        assert!(recent_enough(now + Duration::from_secs(86_400), now));
     }
 
     #[test]

@@ -35,7 +35,8 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   shells read the same files, so the naming is a shared convention this application does
   not own and must not change on its own. **Candidate ports come from those log file names**, not from a
   sweep of 3080–3129: no log means no token, and only a log records a port outside the
-  band. `SCAN_CONNECT_TIMEOUT` scans for what is already listening; picking a port to
+  band. Only logs inside `LOG_PORT_MAX_AGE` count — nothing prunes them, and dropping a
+  candidate can cost a running server, so the window is long rather than strict. `SCAN_CONNECT_TIMEOUT` scans for what is already listening; picking a port to
   start on is `can_bind`, not a connect probe — a port nobody is listening on can still
   refuse the server's own bind, and no timeout makes that answer right.
 - The port is the user's: `discover` offers and starts nothing, `start_server` acts on the
