@@ -142,6 +142,15 @@ function writeState(state, env = process.env) {
  * Where the shell would already be if its installer had run. Best effort by
  * design: this only decides whether the plugin stays quiet, and a miss costs one
  * redundant download rather than a wrong action.
+ *
+ * The Windows roots come from the environment; on macOS and Linux they used to be
+ * absolute — `/Applications`, `/usr/bin` — which made this a question about the
+ * machine running the tests rather than about the host the test names: install the
+ * application to try it, and every test that expects a download starts finding an
+ * installed copy instead. A fixture answers for itself, the way `isWsl` reads a
+ * fixture's environment rather than the host's, because a host's filesystem is
+ * whatever the fixture says it is. The real paths are what the real environment
+ * gets, which is what `apply` passes.
  * @param platform - `process.platform`.
  * @param env - the environment to read.
  * @returns candidate paths, any of which means "already installed".
@@ -155,6 +164,11 @@ function installedCandidates(platform = process.platform, env = process.env) {
       env['ProgramFiles(x86)'],
     ]
     return roots.filter(Boolean).map((root) => join(root, APP, `${APP}.exe`))
+  }
+  if (env !== process.env) {
+    // No home, no installs: "nothing is installed here" has to be as sayable as
+    // the opposite, or a suite can only assert what the machine happens to be.
+    return env.HOME === undefined ? [] : [join(env.HOME, '.local', 'bin', APP)]
   }
   if (platform === 'darwin') return [`/Applications/${APP}.app`]
   return [`/usr/bin/${APP}`, `/usr/local/bin/${APP}`, join(homedir(), '.local/bin', APP), `/opt/${APP}/${APP}`]

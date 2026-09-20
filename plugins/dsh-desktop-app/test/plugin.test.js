@@ -7,10 +7,10 @@
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 
 import { apply, internals, name as pluginName } from '../lib/index.js'
@@ -110,8 +110,17 @@ describe('the platform contract', () => {
     assert.ok(windows.length > 0)
     assert.ok(windows.every((candidate) => candidate.endsWith(`${APP}.exe`)))
     assert.ok(windows.some((candidate) => candidate.includes('Programs')))
-    assert.deepEqual(internals.installedCandidates('darwin', {}), [`/Applications/${APP}.app`])
-    assert.ok(internals.installedCandidates('linux', {}).includes(`/usr/bin/${APP}`))
+
+    // A fixture describes a host, so its own home is the whole filesystem it has;
+    // the machine's real paths belong to the real environment, and asking the
+    // fixture for them is what made these tests depend on whether the person
+    // running them had installed the application.
+    assert.deepEqual(internals.installedCandidates('linux', {}), [])
+    assert.deepEqual(internals.installedCandidates('darwin', { HOME: '/home/u' }), [
+      join('/home/u', '.local', 'bin', APP),
+    ])
+    assert.ok(internals.installedCandidates('linux', process.env).includes(`/usr/bin/${APP}`))
+    assert.deepEqual(internals.installedCandidates('darwin', process.env), [`/Applications/${APP}.app`])
   })
 
   it('prints a command that works when nothing opens by itself', () => {
@@ -296,6 +305,31 @@ describe('a first start after installation', () => {
       await internals.run({ mode: 'notice', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
       assert.deepEqual(release.requests, [])
       assert.ok(lines.some((line) => line.includes(internals.RELEASES_PAGE)))
+    } finally {
+      await release.close()
+    }
+  })
+
+  it('says nothing at all when the application is already installed', async () => {
+    const release = await standIn('good', 'linux', 'x64')
+    const fakeHome = home('installed-home')
+    const installed = join(fakeHome, '.local', 'bin', APP)
+    mkdirSync(dirname(installed), { recursive: true })
+    writeFileSync(installed, '#!/bin/sh\n')
+
+    const env = {
+      HOME: fakeHome,
+      DSH_HOME: home('installed'),
+      DISPLAY: ':0',
+      DSH_TAURIAPP_RELEASES_API: release.api,
+    }
+    const lines = []
+    try {
+      await internals.run({ mode: 'auto', open: true }, env, (line) => lines.push(line), 'linux', 'x64')
+      // The whole point of the check: a machine that has the shell is not asked
+      // for anything, and is not told anything either.
+      assert.deepEqual(release.requests, [])
+      assert.deepEqual(lines, [])
     } finally {
       await release.close()
     }
