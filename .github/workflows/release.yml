@@ -5,9 +5,9 @@ name: release
 # bundles for every supported platform, and publishes them on the GitHub
 # release.
 #
-# Unlike the sibling plugin repositories, the release *is* the distribution
-# channel here: nothing lands on npm, so the artifacts have to be attached and
-# the notes have to tell a visitor how to install them.
+# Unlike a package published to npm, the release *is* the distribution channel
+# here: nothing lands on npm, so the artifacts have to be attached and the notes
+# have to tell a visitor how to install them.
 
 on:
   push:

@@ -31,9 +31,9 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
 - Discovery reads the token back from
   `$DSH_HOME/launcher/logs/server-<port>.out.log`, with the two-step handshake and a
   detached server that outlives the window. **That directory is not dsh's** — dsh does not
-  know it exists. It is where a launcher sends a spawned server's stdout, and other dsh
-  shells read the same files, so the naming is a shared convention this application does
-  not own and must not change on its own. **Candidate ports come from those log file names**, not from a
+  know it exists. It is where a launcher sends a spawned server's stdout, so the path and
+  the file naming are an external convention this application does not own and must not
+  change on its own. **Candidate ports come from those log file names**, not from a
   sweep of 3080–3129: no log means no token, and only a log records a port outside the
   band. Only logs inside `LOG_PORT_MAX_AGE` count — nothing prunes them, and dropping a
   candidate can cost a running server, so the window is long rather than strict. `SCAN_CONNECT_TIMEOUT` scans for what is already listening; picking a port to

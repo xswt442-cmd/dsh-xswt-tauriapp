@@ -96,9 +96,8 @@ pub fn home_dir() -> PathBuf {
 ///
 /// Not something dsh owns — it does not write this directory and does not know
 /// the name. A launcher writing here is what puts a spawned server's stdout
-/// somewhere the token can be recovered from, and other dsh shells read the same
-/// files, so the path and the file naming are a convention shared with them
-/// rather than this application's to change.
+/// somewhere the token can be recovered from, so the path and the file naming
+/// are an external convention rather than this application's to change.
 pub fn log_dir() -> PathBuf {
     dsh_home().join("launcher").join("logs")
 }
