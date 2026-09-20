@@ -197,7 +197,19 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
         path.display()
     );
     crate::guest::open_external(&path.display().to_string());
-    Ok(format!("已下载并校验 {}，安装程序已打开。", installer.name))
+    // On Linux the opener is `xdg-open`, and for a `.deb` that usually means an
+    // archive manager rather than an installer. Handing it over is still right —
+    // the platform answers, this shell does not — but the command that does
+    // install it is worth naming, because nothing in a file manager will.
+    Ok(if cfg!(target_os = "linux") {
+        format!(
+            "已下载并校验 {}。已交给系统打开；若只是打开了归档管理器，用 sudo apt install {} 安装。",
+            installer.name,
+            path.display()
+        )
+    } else {
+        format!("已下载并校验 {}，安装程序已打开。", installer.name)
+    })
 }
 
 /// The `npm` that owns the dsh this shell is actually running against.
@@ -242,7 +254,7 @@ fn npm_in(dir: &std::path::Path) -> Option<PathBuf> {
 pub fn install(app: &AppHandle, version: &str) -> Result<(), String> {
     let npm = npm_for_update()?;
 
-    let args = updates::install_argv(version);
+    let args = updates::install_argv(version)?;
     let output = Command::new(&npm)
         .args(&args)
         .output()

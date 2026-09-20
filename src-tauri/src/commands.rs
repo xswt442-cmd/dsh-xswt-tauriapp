@@ -91,17 +91,18 @@ pub async fn start_server(
     app: AppHandle,
     shell: State<'_, SharedShell>,
     port: u16,
+    typed: bool,
 ) -> Result<(), String> {
     let shared = shell.inner().clone();
     // Only a port the user actually named is remembered. Accepting the suggested
-    // default is not a preference, and remembering it would pin the suggestion
-    // to whatever the first launch happened to pick — the point of the default
-    // is that it keeps tracking the first free port.
-    let named = shared
-        .lock()
-        .map(|guard| guard.state.default_port != Some(port))
-        .unwrap_or(false);
-    if named {
+    // default is not a preference, and remembering it would pin the suggestion to
+    // whatever the first launch happened to pick — the point of the default is
+    // that it keeps tracking the first free port.
+    //
+    // `typed` is a parameter rather than `port != default_port`, which cannot tell
+    // "I want 3080" from "I did not care and 3080 was offered": the page knows
+    // which field the value came from, and this is the only place that does.
+    if typed {
         // Before anything can fail, and kept even if it does: a port this user
         // asked for is the port they want next time too.
         if let Ok(mut guard) = shared.lock() {

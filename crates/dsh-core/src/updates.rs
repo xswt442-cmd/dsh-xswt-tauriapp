@@ -244,13 +244,21 @@ pub fn check(current: &str, dismissed: &DismissStore) -> Result<UpdateReport, St
     Ok(build_report(current, &doc, dismissed))
 }
 
-/// The argv that installs one version globally.
-pub fn install_argv(version: &str) -> Vec<String> {
-    vec![
+/// The argv that installs one version globally, or why it is not a version.
+///
+/// The listing is where these strings come from, but the value that reaches this
+/// function has been through a page and back, so it is checked rather than
+/// trusted. It ends up as an npm argument, and only a version belongs there — a
+/// rejected one costs a dialog line instead of an npm run against a spec nobody
+/// chose.
+pub fn install_argv(version: &str) -> Result<Vec<String>, String> {
+    semver::Version::parse(version)
+        .map_err(|error| format!("不是有效的版本号 {version:?}：{error}"))?;
+    Ok(vec![
         "install".to_string(),
         "-g".to_string(),
         format!("{PACKAGE}@{version}"),
-    ]
+    ])
 }
 
 /// Versions the user asked not to be reminded about, persisted as JSON.
@@ -492,8 +500,25 @@ mod tests {
     #[test]
     fn install_command_targets_the_requested_version() {
         assert_eq!(
-            install_argv("0.1.6-alpha.1"),
+            install_argv("0.1.6-alpha.1").expect("a version"),
             vec!["install", "-g", "@deepseek-ai/dsh@0.1.6-alpha.1"]
         );
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_version_never_becomes_an_npm_argument() {
+        // The page sends this back, so it is checked rather than trusted.
+        for rejected in [
+            "",
+            "latest",
+            "0.1.6; rm -rf /",
+            "--force",
+            "@scope/other@1.0.0",
+        ] {
+            assert!(
+                install_argv(rejected).is_err(),
+                "{rejected:?} should not become an install target"
+            );
+        }
     }
 }

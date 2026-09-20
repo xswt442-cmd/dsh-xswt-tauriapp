@@ -93,7 +93,8 @@ fn main() {
                         .map(|c| c.version.as_str())
                         .unwrap_or("<version>")
                 )
-                .join(" ")
+                .map(|argv| argv.join(" "))
+                .unwrap_or_else(|error| format!("<{error}>"))
             );
         }
     }

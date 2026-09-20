@@ -431,7 +431,11 @@ async function confirmAndStart() {
   el("splash-message").textContent = `正在端口 ${port} 启动 dsh 服务…`;
   try {
     // Returns as soon as the work is under way; the outcome arrives as an event.
-    await invoke("start_server", { port });
+    // `typed` says whether the port came from the field or from the greyed
+    // default, which the value alone cannot: typing the suggested port by hand is
+    // still a preference, and Rust remembers only preferences.
+    const typed = el("port-input").value.trim() !== "";
+    await invoke("start_server", { port, typed });
   } catch (failure) {
     reportFailure("start_server", failure);
     starting = false;

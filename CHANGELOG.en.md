@@ -12,10 +12,15 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - Picking a port to start on binds it instead of probing for a listener: while an earlier instance's listener is still settling, a connect probe reports the port free and the child then exited with `EADDRINUSE`.
 
 - Candidate ports come only from logs written within 90 days: nothing prunes them, so every port the machine had ever used was probed on every launch.
+- A typed port is marked by the page that typed it, rather than inferred from the value (a port typed by hand that happened to equal the suggestion was not remembered); an install target is checked as a version before it becomes an npm argument; the zoom factor carries into the dsh window instead of being lost at the hand-off.
 
 ### Security
 
 - The bootstrap window's navigation policy admits only the bundled assets: it is the only window granted a capability, and any page on any loopback port could previously load there and reach the command surface.
+
+### Maintenance
+
+- Linux names the `sudo apt install` command after handing the installer over: `xdg-open` on a `.deb` usually reaches an archive manager, not an installer.
 
 ## 0.0.9 - 2026-09-19
 

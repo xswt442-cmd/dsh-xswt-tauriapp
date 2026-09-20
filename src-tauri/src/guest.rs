@@ -199,7 +199,7 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         .map_err(|error| format!("URL 无效：{error}"))?;
 
     let load_shell = shell.clone();
-    WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
+    let window = WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
         .title("DeepSeek Harness")
         .inner_size(1500.0, 940.0)
         .min_inner_size(900.0, 600.0)
@@ -242,9 +242,18 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         .build()
         .map_err(|error| format!("无法创建 dsh 窗口：{error}"))?;
 
-    if let Ok(mut guard) = shell.lock() {
+    // The zoom factor lives in the shell rather than in the webview — see
+    // `zoom_by` — so a window built after the last `set_zoom` starts at 1.0
+    // unless it is told. Zooming the bootstrap page and then handing over is
+    // exactly that case, and it would silently lose the setting.
+    let zoom = {
+        let Ok(mut guard) = shell.lock() else {
+            return Err("状态锁不可用".to_string());
+        };
         guard.handoff = Handoff::Priming;
-    }
+        guard.zoom
+    };
+    let _ = window.set_zoom(zoom);
     shell_log!("[dsh-harness] guest window created for {}", session.url);
 
     let repair_app = app.clone();

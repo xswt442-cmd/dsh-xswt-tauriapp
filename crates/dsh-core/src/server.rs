@@ -693,8 +693,8 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, recent_enough,
-        PortChoice, PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT,
+        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, recent_enough, PortChoice,
+        PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT,
     };
     use std::path::Path;
 
