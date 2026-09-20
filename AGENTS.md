@@ -28,9 +28,12 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   on Windows (wry#583).
 - Non-GUI logic lives in `crates/dsh-core`: it builds and tests without webkit2gtk, and
   hands over a prepared `Session` (clean URL + cookie), never a token URL.
-- Discovery stays as dsh has it — token from
-  `$DSH_HOME/launcher/logs/server-<port>.out.log`, two-step handshake, detached server
-  that outlives the window. **Candidate ports come from those log file names**, not from a
+- Discovery reads the token back from
+  `$DSH_HOME/launcher/logs/server-<port>.out.log`, with the two-step handshake and a
+  detached server that outlives the window. **That directory is not dsh's** — dsh does not
+  know it exists. It is where a launcher sends a spawned server's stdout, and other dsh
+  shells read the same files, so the naming is a shared convention this application does
+  not own and must not change on its own. **Candidate ports come from those log file names**, not from a
   sweep of 3080–3129: no log means no token, and only a log records a port outside the
   band. `SCAN_CONNECT_TIMEOUT` scans for what is already listening; picking a port to
   start on is `can_bind`, not a connect probe — a port nobody is listening on can still

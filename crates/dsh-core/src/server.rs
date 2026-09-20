@@ -91,8 +91,14 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Where dsh writes the `server-<port>.{out,err}.log` files the token is read
-/// back from.
+/// Where the `server-<port>.{out,err}.log` files the token is read back from
+/// live.
+///
+/// Not something dsh owns — it does not write this directory and does not know
+/// the name. A launcher writing here is what puts a spawned server's stdout
+/// somewhere the token can be recovered from, and other dsh shells read the same
+/// files, so the path and the file naming are a convention shared with them
+/// rather than this application's to change.
 pub fn log_dir() -> PathBuf {
     dsh_home().join("launcher").join("logs")
 }
