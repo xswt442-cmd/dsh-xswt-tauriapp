@@ -8,9 +8,8 @@
 //! cargo run --example port-choice
 //! ```
 //!
-//! It starts two real servers and leaves them running, the way the shell does —
-//! stopping them is the instance manager's job. Exits non-zero listing everything
-//! that did not hold.
+//! It starts two real servers and leaves them running, the way the shell does.
+//! Exits non-zero listing everything that did not hold.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;

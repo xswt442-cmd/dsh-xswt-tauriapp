@@ -261,8 +261,7 @@ pub fn run() {
             }
             WindowEvent::CloseRequested { .. } => {
                 // Closing a window quits the harness. The dsh server is detached
-                // and keeps running — stopping it is the instance manager's job,
-                // not this shell's.
+                // and keeps running.
                 window.app_handle().exit(0);
             }
             _ => {}

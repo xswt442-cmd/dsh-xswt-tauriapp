@@ -16,8 +16,7 @@
 //!   prepared session rather than a token URL, so the launch token never reaches
 //!   a page.
 //! * Starting a server must not make the shell its parent in a way that kills
-//!   it on exit. Closing the window never stops the server; that is the
-//!   instance manager's job.
+//!   it on exit. Closing the window never stops the server.
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
