@@ -9,8 +9,8 @@ use dsh_xswt_tauriapp_core::server::{self, PortChoice};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::state::{self, SharedShell, ShellState};
-use crate::update::{self, SelfUpdatePayload, UpdatePayload};
+use crate::state::{self, SelfUpdatePayload, SharedShell, ShellState, UpdatePayload};
+use crate::update;
 use crate::{bootstrap, guest, shell_log};
 
 /// What the port in the dialog would do, classified.

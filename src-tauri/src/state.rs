@@ -22,13 +22,13 @@ pub const EVENT_STATUS: &str = "shell://status";
 pub const EVENT_READY: &str = "shell://ready";
 /// Bringing the UI up failed; carries the full [`ShellState`].
 pub const EVENT_ERROR: &str = "shell://error";
-/// Result of an update check; carries an [`crate::update::UpdatePayload`].
+/// Result of an update check; carries an [`UpdatePayload`].
 pub const EVENT_UPDATE: &str = "shell://update";
 /// Startup reached the point where the user picks a port and a version; carries
 /// the full [`ShellState`].
 pub const EVENT_CHOOSE: &str = "shell://choose";
 /// Result of a check for a newer build of *this application*; carries a
-/// [`crate::update::SelfUpdatePayload`].
+/// [`SelfUpdatePayload`].
 pub const EVENT_SELF_UPDATE: &str = "shell://self-update";
 
 /// The window showing the shell's own UI: progress, updates, failures. A local
@@ -82,7 +82,7 @@ pub struct ShellState {
     /// This build's own version, so the page can name what it would update.
     pub shell_version: Option<String>,
     /// The last self-update check, as the page sees it.
-    pub self_update: Option<crate::update::SelfUpdatePayload>,
+    pub self_update: Option<SelfUpdatePayload>,
     /// Fatal startup error, when `phase` is `failed`.
     pub error: Option<String>,
     /// The installed dsh version.
@@ -93,6 +93,43 @@ pub struct ShellState {
     pub update: Option<updates::UpdateReport>,
     /// Why the last update check failed, if it did.
     pub update_error: Option<String>,
+}
+
+/// Result of one dsh update check, as delivered to the bootstrap page.
+///
+/// Defined here rather than beside the code that produces it, because it is part
+/// of the snapshot a page reads: `update` builds it, `state` holds it, the page
+/// reads it, and only one of those three can own the type without the other two
+/// depending on each other.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UpdatePayload {
+    /// Installed version at check time.
+    pub current: String,
+    /// The channel report, when the registry answered.
+    pub report: Option<updates::UpdateReport>,
+    /// Why the check failed, when it did.
+    pub error: Option<String>,
+    /// Whether the launch popup should appear.
+    pub should_prompt: bool,
+}
+
+/// Result of checking whether *this application* has a newer build.
+///
+/// Separate from [`UpdatePayload`], which is about dsh: the two share a dialog
+/// but nothing else, and a page that mixed them would offer the wrong restart.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct SelfUpdatePayload {
+    /// The version this build is.
+    pub current: String,
+    /// The newer version, when there is one.
+    pub version: Option<String>,
+    /// Why the check failed, when it did.
+    pub error: Option<String>,
+    /// Whether this machine has an installer to hand over, rather than only a
+    /// page to read.
+    pub can_install: bool,
+    /// Whether the launch notice should appear.
+    pub should_prompt: bool,
 }
 
 /// How far handing the guest window its session has got.
@@ -186,6 +223,10 @@ pub fn set_message(app: &AppHandle, shell: &SharedShell, message: &str) {
 /// The bootstrap window is what the user reads, so it is shown as well — a
 /// failure that happened after the hand-off began would otherwise be invisible,
 /// with the guest window hidden or already gone.
+///
+/// Tearing the guest window down is the caller's, not this module's: a window is
+/// not state, and reaching into one from here would make the two modules depend
+/// on each other.
 pub fn fail(app: &AppHandle, shell: &SharedShell, error: impl Into<String>) {
     let message = error.into();
     let snap = match shell.lock() {
@@ -200,7 +241,6 @@ pub fn fail(app: &AppHandle, shell: &SharedShell, error: impl Into<String>) {
     };
     crate::shell_log!("[dsh-harness] failed: {message}");
     let _ = app.emit(EVENT_ERROR, snap);
-    crate::guest::retire(app);
     if let Some(window) = app.get_webview_window(BOOTSTRAP_LABEL) {
         let _ = window.show();
         let _ = window.set_focus();

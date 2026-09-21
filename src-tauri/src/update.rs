@@ -8,24 +8,12 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use dsh_xswt_tauriapp_core::{paths, self_update, updates};
-use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::shell_log;
-use crate::state::{SharedShell, EVENT_SELF_UPDATE, EVENT_UPDATE};
-
-/// Result of one update check, as delivered to the bootstrap page.
-#[derive(Debug, Clone, Serialize, Default)]
-pub struct UpdatePayload {
-    /// Installed version at check time.
-    pub current: String,
-    /// The channel report, when the registry answered.
-    pub report: Option<updates::UpdateReport>,
-    /// Why the check failed, when it did.
-    pub error: Option<String>,
-    /// Whether the launch popup should appear.
-    pub should_prompt: bool,
-}
+use crate::state::{
+    SelfUpdatePayload, SharedShell, UpdatePayload, EVENT_SELF_UPDATE, EVENT_UPDATE,
+};
 
 /// Ask the registry what exists and publish the answer.
 pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
@@ -71,25 +59,6 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
     );
     let _ = app.emit(EVENT_UPDATE, payload.clone());
     payload
-}
-
-/// Result of checking whether *this application* has a newer build.
-///
-/// Separate from [`UpdatePayload`], which is about dsh: the two share a dialog
-/// but nothing else, and a page that mixed them would offer the wrong restart.
-#[derive(Debug, Clone, Serialize, Default)]
-pub struct SelfUpdatePayload {
-    /// The version this build is.
-    pub current: String,
-    /// The newer version, when there is one.
-    pub version: Option<String>,
-    /// Why the check failed, when it did.
-    pub error: Option<String>,
-    /// Whether this machine has an installer to hand over, rather than only a
-    /// page to read.
-    pub can_install: bool,
-    /// Whether the launch notice should appear.
-    pub should_prompt: bool,
 }
 
 /// The version of this build.
@@ -183,7 +152,7 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
         .ok_or_else(|| "当前没有待安装的外壳更新。".to_string())?;
 
     let Some(installer) = pending.installer.as_ref() else {
-        crate::guest::open_external(&pending.page);
+        crate::link::open_external(&pending.page);
         return Ok("已打开发布页。".to_string());
     };
 
@@ -196,7 +165,7 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
         installer.name,
         path.display()
     );
-    crate::guest::open_external(&path.display().to_string());
+    crate::link::open_external(&path.display().to_string());
     // On Linux the opener is `xdg-open`, and for a `.deb` that usually means an
     // archive manager rather than an installer. Handing it over is still right —
     // the platform answers, this shell does not — but the command that does

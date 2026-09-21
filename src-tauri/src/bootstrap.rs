@@ -38,6 +38,7 @@ pub fn discover(app: AppHandle, shell: SharedShell) {
     let plan = match server::plan(last_chosen) {
         Ok(plan) => plan,
         Err(error) => {
+            guest::retire(&app);
             state::fail(&app, &shell, error);
             return;
         }
@@ -85,7 +86,10 @@ pub fn start(app: AppHandle, shell: SharedShell, port: u16) {
 
     match launch {
         Ok(launch) => hand_over(&app, &shell, launch),
-        Err(error) => state::fail(&app, &shell, error),
+        Err(error) => {
+            guest::retire(&app);
+            state::fail(&app, &shell, error);
+        }
     }
 }
 
@@ -106,6 +110,7 @@ fn hand_over(app: &AppHandle, shell: &SharedShell, launch: launch::Launch) {
             // The dsh UI is behind this cookie. Without it the window would show
             // dsh's own 401 text, which is exactly the failure this design
             // exists to avoid, so it is reported instead.
+            guest::retire(app);
             state::fail(app, shell, format!("无法把 dsh 会话交给窗口：{error}"));
             return;
         }

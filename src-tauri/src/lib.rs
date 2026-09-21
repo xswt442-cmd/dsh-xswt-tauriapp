@@ -24,6 +24,7 @@
 mod bootstrap;
 mod commands;
 mod guest;
+mod link;
 mod menu;
 mod state;
 mod update;
@@ -73,14 +74,14 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
         // This window carries the only capability, so its policy is its own and
         // narrower than the guest's: the bundled assets, nothing else. A loopback
         // port is not the shell's to load in here.
-        if guest::is_shell_asset(url) {
+        if link::is_shell_asset(url) {
             return true;
         }
-        guest::open_external(url.as_str());
+        link::open_external(url.as_str());
         false
     })
     .on_new_window(|url, _features| {
-        guest::open_external(url.as_str());
+        link::open_external(url.as_str());
         tauri::webview::NewWindowResponse::Deny
     })
     .build()?;
