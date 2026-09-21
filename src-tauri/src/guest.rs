@@ -196,8 +196,24 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         .parse()
         .map_err(|error| format!("URL 无效：{error}"))?;
 
+    // `Priming` is set before the window exists, not after it. `.build()` returns
+    // as soon as the webview does, and the main thread can then dispatch the
+    // first `Finished` page load while this thread is still on its way to the
+    // lock: `on_loaded` would find `Idle`, decline to show the window, and
+    // `watch` would report its 90-second deadline for a page that had already
+    // loaded. The zoom factor rides along because it lives in the shell rather
+    // than in the webview — see `zoom_by` — so a window built after the last
+    // `set_zoom` starts at 1.0 unless it is told.
+    let zoom = {
+        let Ok(mut guard) = shell.lock() else {
+            return Err("状态锁不可用".to_string());
+        };
+        guard.handoff = Handoff::Priming;
+        guard.zoom
+    };
+
     let load_shell = shell.clone();
-    let window = WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
+    let window = match WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
         .title("DeepSeek Harness")
         .inner_size(1500.0, 940.0)
         .min_inner_size(900.0, 600.0)
@@ -238,18 +254,16 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
             }
         })
         .build()
-        .map_err(|error| format!("无法创建 dsh 窗口：{error}"))?;
-
-    // The zoom factor lives in the shell rather than in the webview — see
-    // `zoom_by` — so a window built after the last `set_zoom` starts at 1.0
-    // unless it is told. Zooming the bootstrap page and then handing over is
-    // exactly that case, and it would silently lose the setting.
-    let zoom = {
-        let Ok(mut guard) = shell.lock() else {
-            return Err("状态锁不可用".to_string());
-        };
-        guard.handoff = Handoff::Priming;
-        guard.zoom
+    {
+        Ok(window) => window,
+        Err(error) => {
+            // Nothing was primed if no window exists, and leaving `Priming`
+            // behind would make `watch`'s deadline the next thing to report.
+            if let Ok(mut guard) = shell.lock() {
+                guard.handoff = Handoff::Idle;
+            }
+            return Err(format!("无法创建 dsh 窗口：{error}"));
+        }
     };
     let _ = window.set_zoom(zoom);
     shell_log!("[dsh-harness] guest window created for {}", session.url);

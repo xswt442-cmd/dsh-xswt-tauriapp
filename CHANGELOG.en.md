@@ -23,6 +23,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - Updating dsh on Windows no longer fails with `os error 193` ("not a valid Win32 application"): npm installs an extensionless POSIX script beside `npm.cmd` and `npm.ps1`, and directory order picked the one that cannot start at all; the executable is chosen per platform now (Windows prefers `npm.cmd`), a `.cmd` runs explicitly through `cmd.exe /d /s /c` with the argv quoted token by token, and no console window flashes.
 - The npm prefix is read off the launcher in both directory shapes: npm's Windows `<prefix>\node_modules` has no `lib` level, so the derivation failed there and "the npm that owns dsh" only ever held on Unix; a candidate must also really hold npm, so a module root like `$DSH_HOME/profiles/node_modules` is not mistaken for a prefix.
 - The startup token is no longer lost when the 256 KiB tail window opens inside a multi-byte character: the tail is read as bytes and decoded leniently, where a strict UTF-8 check failed the whole read and left the port looking like it had no token at all — which starts a second instance.
+- The hand-off is marked `Priming` before the guest window is built rather than after it: a first page load that beat the flag left the window hidden and reported a load timeout that was not real.
 
 ### Security
 
