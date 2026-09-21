@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{self_update, server, updates, zoom};
+use dsh_xswt_tauriapp_core::{handshake, ports, self_update, updates, zoom};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -122,11 +122,11 @@ pub struct Shell {
     /// Where the do-not-remind list is persisted.
     pub dismiss_path: Option<PathBuf>,
     /// The verified dsh session. Rust-only: see the module docs.
-    pub session: Option<server::Session>,
+    pub session: Option<handshake::Session>,
     /// How far the guest window hand-off has got.
     pub handoff: Handoff,
     /// The port the user last chose by hand.
-    pub port_memory: server::PortMemory,
+    pub port_memory: ports::PortMemory,
     /// Versions of *this application* the user asked not to be reminded about.
     /// A second store rather than a shared one: dsh versions and application
     /// versions are different namespaces and must not silence each other.
@@ -149,7 +149,7 @@ impl Default for Shell {
             dismiss_path: None,
             session: None,
             handoff: Handoff::default(),
-            port_memory: server::PortMemory::default(),
+            port_memory: ports::PortMemory::default(),
             self_dismiss: updates::DismissStore::default(),
             self_pending: None,
             zoom: 1.0,

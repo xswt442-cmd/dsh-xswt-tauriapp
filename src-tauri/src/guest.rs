@@ -24,7 +24,7 @@
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use dsh_xswt_tauriapp_core::{server::Session, zoom};
+use dsh_xswt_tauriapp_core::{handshake::Session, zoom};
 use tauri::webview::{Cookie, PageLoadEvent};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 

@@ -30,7 +30,7 @@ mod update;
 
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{server, updates, zoom};
+use dsh_xswt_tauriapp_core::{paths, ports, updates, zoom};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Log a harness event.
@@ -105,7 +105,7 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         .map(|dir| dir.join("last-port.json"));
     let port_memory = port_path
         .as_ref()
-        .map(server::PortMemory::load)
+        .map(ports::PortMemory::load)
         .unwrap_or_default();
 
     // The guest window's zoom factor. Remembered because the display scale it
@@ -156,10 +156,10 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         state: state::ShellState {
             phase: state::Phase::Starting,
             message: "正在启动…".into(),
-            log_dir: Some(server::log_dir().display().to_string()),
+            log_dir: Some(paths::log_dir().display().to_string()),
             // Resolved once here rather than per check: the dialog's "installed
             // at" line used to show the loopback URL, which is not where dsh is.
-            dsh_bin: server::resolve_dsh_bin().map(|path| path.display().to_string()),
+            dsh_bin: paths::resolve_dsh_bin().map(|path| path.display().to_string()),
             shell_version: Some(update::shell_version()),
             ..Default::default()
         },

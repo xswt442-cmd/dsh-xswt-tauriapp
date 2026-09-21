@@ -11,7 +11,7 @@
 
 use tauri::{AppHandle, Emitter};
 
-use dsh_xswt_tauriapp_core::server;
+use dsh_xswt_tauriapp_core::{launch, server};
 
 use crate::shell_log;
 use crate::state::{self, Phase, SharedShell, EVENT_CHOOSE, EVENT_READY};
@@ -79,7 +79,7 @@ pub fn start(app: AppHandle, shell: SharedShell, port: u16) {
 
     let progress_app = app.clone();
     let progress_shell = shell.clone();
-    let launch = server::start_on_with_progress(port, move |message| {
+    let launch = launch::start_on_with_progress(port, move |message| {
         state::set_message(&progress_app, &progress_shell, message);
     });
 
@@ -90,7 +90,7 @@ pub fn start(app: AppHandle, shell: SharedShell, port: u16) {
 }
 
 /// Put the session cookie in the jar and announce that a window may be built.
-fn hand_over(app: &AppHandle, shell: &SharedShell, launch: server::Launch) {
+fn hand_over(app: &AppHandle, shell: &SharedShell, launch: launch::Launch) {
     let session = launch.session().clone();
     let reused = launch.is_reused();
 

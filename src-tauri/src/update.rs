@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use dsh_xswt_tauriapp_core::{self_update, server, updates};
+use dsh_xswt_tauriapp_core::{paths, self_update, updates};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -29,7 +29,7 @@ pub struct UpdatePayload {
 
 /// Ask the registry what exists and publish the answer.
 pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
-    let current = server::installed_version().unwrap_or_else(|| "0.0.0".to_string());
+    let current = paths::installed_version().unwrap_or_else(|| "0.0.0".to_string());
     let store = shell
         .lock()
         .map(|guard| guard.store.clone())
@@ -223,13 +223,13 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
 ///
 /// The prefix now comes from the launcher's own layout on either platform, so a
 /// Windows install answers too — npm's prefix is `<prefix>\node_modules` there,
-/// with no `lib` level to walk to. See [`server::node_prefix_of`].
+/// with no `lib` level to walk to. See [`paths::node_prefix_of`].
 fn npm_for_dsh() -> Option<PathBuf> {
-    let launcher = std::fs::canonicalize(server::resolve_dsh_bin()?).ok()?;
-    let prefix = server::node_prefix_of(&launcher)?;
+    let launcher = std::fs::canonicalize(paths::resolve_dsh_bin()?).ok()?;
+    let prefix = paths::node_prefix_of(&launcher)?;
     // The prefix holds npm at its root or under `bin`, which are the same two
     // shapes that named it — and the one that matched is the one that answers.
-    server::npm_in(&prefix).or_else(|| server::npm_in(&prefix.join("bin")))
+    paths::npm_in(&prefix).or_else(|| paths::npm_in(&prefix.join("bin")))
 }
 
 /// The `npm` to install through: the one that owns dsh, else the one beside the
@@ -238,10 +238,10 @@ fn npm_for_update() -> Result<PathBuf, String> {
     if let Some(npm) = npm_for_dsh() {
         return Ok(npm);
     }
-    let node = server::resolve_node()
+    let node = paths::resolve_node()
         .ok_or_else(|| "未找到 node，也无法从 dsh 安装位置推断 npm。".to_string())?;
     let bin_dir = node.parent().ok_or_else(|| "node 路径异常".to_string())?;
-    server::npm_in(bin_dir).ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))
+    paths::npm_in(bin_dir).ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))
 }
 
 /// Install one dsh version globally, then restart so the new launcher is used.
