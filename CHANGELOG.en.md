@@ -7,34 +7,33 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Added
 
-- The guest window's zoom factor is remembered: `Ctrl/Cmd+=` / `-` / `0` persist to the application config directory and survive a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins over the remembered value.
+- The dsh window's zoom factor is remembered across restarts; `DSH_SHELL_ZOOM` seeds it for a session and wins over the remembered value.
 
 ### Fixed
 
-- Update checks and "update and restart" are async commands: a registry request or an `npm install -g` no longer runs inside the webview's IPC callback, so the window stays responsive throughout.
-- The marketplace stub takes the host platform and architecture as parameters, so the "no desktop session, do not download" branch is no longer only exercised where the tests happen to run; `node --test` passes on Windows and macOS too.
-- Picking a port to start on binds it instead of probing for a listener: while an earlier instance's listener is still settling, a connect probe reports the port free and the child then exited with `EADDRINUSE`.
-
-- Candidate ports come only from logs written within 90 days: nothing prunes them, so every port the machine had ever used was probed on every launch.
-- A typed port is marked by the page that typed it, rather than inferred from the value (a port typed by hand that happened to equal the suggestion was not remembered); an install target is checked as a version before it becomes an npm argument; the zoom factor carries into the dsh window instead of being lost at the hand-off.
-- The marketplace stub decides "already installed" from the fixture too: the Linux and macOS candidates were absolute paths (`/usr/bin`, `/Applications`), so on a machine that has the shell installed — which is what trying it means — the "not installed, so download" tests started failing (six of them here).
-- The marketplace stub recognises WSL, where `xdg-open` cannot install a `.deb`: it says so, and points a Windows desktop at the `*-setup.exe` asset instead.
-- A failed hand-off is no longer silent: an opener that exits non-zero is logged, which is how `xdg-open` exits when nothing handles a `.deb`.
-- Updating dsh on Windows no longer fails with `os error 193` ("not a valid Win32 application"): npm installs an extensionless POSIX script beside `npm.cmd` and `npm.ps1`, and directory order picked the one that cannot start at all; the executable is chosen per platform now (Windows prefers `npm.cmd`), a `.cmd` runs explicitly through `cmd.exe /d /s /c` with the argv quoted token by token, and no console window flashes.
-- The npm prefix is read off the launcher in both directory shapes: npm's Windows `<prefix>\node_modules` has no `lib` level, so the derivation failed there and "the npm that owns dsh" only ever held on Unix; a candidate must also really hold npm, so a module root like `$DSH_HOME/profiles/node_modules` is not mistaken for a prefix.
-- The startup token is no longer lost when the 256 KiB tail window opens inside a multi-byte character: the tail is read as bytes and decoded leniently, where a strict UTF-8 check failed the whole read and left the port looking like it had no token at all — which starts a second instance.
-- The hand-off is marked `Priming` before the guest window is built rather than after it: a first page load that beat the flag left the window hidden and reported a load timeout that was not real.
+- Update checks and "update and restart" run off the webview's IPC callback, so the window stays responsive.
+- The marketplace stub takes the host platform and architecture as parameters; `node --test` passes on all three platforms.
+- Picking a port binds it instead of probing, so a listener that is still settling cannot be misread as free.
+- Candidate ports come only from logs written in the last 90 days.
+- A port typed by hand is always remembered; install targets are checked as semver; the zoom factor carries into the new dsh window.
+- The stub's "already installed" answer comes from the fixture, so tests no longer flip on a machine that has the shell.
+- The stub recognises WSL, where `xdg-open` cannot install a `.deb`, and points at the Windows installer instead.
+- An opener that exits non-zero is logged, so a failed hand-off is no longer silent.
+- Updating dsh on Windows no longer fails with `os error 193`: the npm launcher is chosen per platform and a `.cmd` runs through `cmd.exe /d /s /c`.
+- The npm prefix accepts both `<prefix>/lib/node_modules` and `<prefix>/node_modules`, so Windows derives the npm that owns dsh too.
+- The log tail is read as bytes and decoded leniently, so a multi-byte character cannot swallow the launch token.
+- The hand-off is primed before the window is built, so no hidden window and no false load timeout.
 
 ### Security
 
-- The bootstrap window's navigation policy admits only the bundled assets: it is the only window granted a capability, and any page on any loopback port could previously load there and reach the command surface.
-- An external link is no longer opened through `cmd /C start` on Windows: cmd re-parses the string it is handed, so a `&` in a URL's query string ends the command and runs what follows (reachable from any link the dsh page renders), and `%VAR%` is expanded even inside quotes. `explorer` takes the URL as its own argument and does neither.
-- The dsh window admits only the session it was handed: any loopback address used to stay inside it, but dsh names its session cookie after the full authority it was minted for, so another port — or the same port spelled `localhost` — could only ever reach its 401 page. Those links open in the system browser now.
+- The `bootstrap` window admits only bundled assets; no other loopback page reaches the command surface.
+- External links on Windows open through `explorer`: a `&` in a URL is no longer a command boundary and `%VAR%` is not expanded.
+- The dsh window admits only the session it was handed; other loopback links open in the browser.
 
 ### Maintenance
 
-- Linux names the `sudo apt install` command after handing the installer over: `xdg-open` on a `.deb` usually reaches an archive manager, not an installer.
-- `docs:check` also verifies that the five version fields agree, instead of leaving that to the release workflow at tag time; the README's environment table lists `DSH_SHELL_ZOOM`.
+- Linux names the `sudo apt install` command after handing over the installer.
+- `docs:check` verifies the five version fields agree; the README environment table lists `DSH_SHELL_ZOOM`.
 
 ## 0.0.9 - 2026-09-19
 
