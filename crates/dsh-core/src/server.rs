@@ -328,12 +328,18 @@ pub fn token_from_log(dir: &Path, port: u16) -> Option<String> {
     }
     let from = len.saturating_sub(LOG_TAIL_BYTES);
     handle.seek(SeekFrom::Start(from)).ok()?;
-    let mut buf = String::new();
-    handle.read_to_string(&mut buf).ok()?;
+    let mut buf = Vec::new();
+    handle.read_to_end(&mut buf).ok()?;
+    // Bytes rather than `read_to_string`: the window starts at `len - 256 KiB`,
+    // an arbitrary byte offset, so it can begin inside a multi-byte character —
+    // and a decode that fails there answers `None` for a token sitting in plain
+    // sight below it. The replacement characters it may start with cannot reach
+    // a match, because the window opens far above the line that matters.
+    let buf = String::from_utf8_lossy(&buf);
 
     // `dsh web: http://127.0.0.1:<port>/?token=<token>`
     let re = regex::Regex::new(r"dsh web:\s+http://127\.0\.0\.1:(\d+)/\?token=(\S+)").ok()?;
-    re.captures_iter(&buf)
+    re.captures_iter(buf.as_ref())
         .filter(|cap| cap[1].parse::<u16>() == Ok(port))
         .last()
         .map(|cap| cap[2].to_string())
@@ -756,7 +762,8 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 mod tests {
     use super::{
         can_bind, check_port, cookie_pair, layout_prefix, logged_ports, node_prefix_of,
-        recent_enough, PortChoice, PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT, NPM_EXE_NAMES,
+        recent_enough, token_from_log, PortChoice, PortMemory, Session, LOG_PORT_MAX_AGE,
+        LOG_TAIL_BYTES, MIN_PORT, NPM_EXE_NAMES,
     };
     use std::path::Path;
 
@@ -920,6 +927,38 @@ mod tests {
         // A machine that has never run dsh has no log directory, which is a
         // normal first launch rather than a failure.
         assert!(logged_ports(Path::new("/nonexistent/dsh-logs")).is_empty());
+    }
+
+    #[test]
+    fn the_token_is_found_even_when_the_window_opens_inside_a_character() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let token = "TOKEN-VALUE";
+
+        // A log long enough that the 256 KiB window opens inside it, built from
+        // lines that are mostly multi-byte — which is what a real dsh log with
+        // Chinese entries looks like.
+        let mut log = String::new();
+        while log.len() < LOG_TAIL_BYTES as usize + 4096 {
+            log.push_str(
+                "[dsh-cost-meter] 已加载,账本:C:\\Users\\u\\.dsh\\storages\\cost-meter\\ledger.json\n",
+            );
+        }
+        let line = format!("dsh web: http://127.0.0.1:3080/?token={token}\n");
+        // Pad to a length whose window start is a continuation byte: that offset
+        // is the one a `from_utf8`-checked read used to reject outright.
+        let padding = (0..128usize)
+            .find(|pad| {
+                let from = log.len() + pad + line.len() - LOG_TAIL_BYTES as usize;
+                log.as_bytes()
+                    .get(from)
+                    .is_some_and(|byte| (0x80..=0xBF).contains(byte))
+            })
+            .expect("a mostly multi-byte log always has such an offset");
+        log.push_str(&"x".repeat(padding));
+        log.push_str(&line);
+        std::fs::write(dir.path().join("server-3080.out.log"), &log).expect("write");
+
+        assert_eq!(token_from_log(dir.path(), 3080), Some(token.to_string()));
     }
 
     #[test]

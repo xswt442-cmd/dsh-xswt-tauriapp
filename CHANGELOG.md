@@ -22,6 +22,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 - 交接安装包失败不再无声：打开器以非零码退出时记一行日志（`xdg-open` 在没有 `.deb` 处理器时就是这样退出的）。
 - Windows 上更新 dsh 不再以 `os error 193`（"不是有效的 Win32 应用程序"）失败：npm 在同一个目录里装了一个无扩展名的 POSIX 脚本与 `npm.cmd`、`npm.ps1`，而按目录顺序选中的正是不能启动的那个；现在按平台挑选（Windows 优先 `npm.cmd`），`.cmd` 显式经 `cmd.exe /d /s /c` 运行、逐 token 加引号，并且不再闪出控制台窗口。
 - 从启动器推导 npm prefix 改为认两种目录形状：Windows 的 `<prefix>\node_modules` 没有 `lib` 这一层，此前一律推导失败，「用拥有 dsh 的那个 npm 更新」因此只在 Unix 上成立；同时要求候选目录真的持有 npm，`$DSH_HOME/profiles/node_modules` 这类模块根不会被误认成 prefix。
+- 服务日志里的启动 token 不再因尾部窗口起点落在多字节字符中间而读不到：256 KiB 尾部按字节读入后宽松解码，此前严格 UTF-8 校验会让整段读取失败、端口被当作没有 token，进而另起一个实例。
 
 ### 安全
 
