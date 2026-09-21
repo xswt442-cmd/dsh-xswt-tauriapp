@@ -112,6 +112,19 @@ pub const NODE_EXE_NAMES: &[&str] = if cfg!(windows) {
     &["node"]
 };
 
+/// File names an `npm` launcher may have, most likely first.
+///
+/// npm installs `npm`, `npm.cmd` and `npm.ps1` side by side on every platform,
+/// so the answer is the platform's and not the directory listing's: the
+/// extensionless `npm` is a POSIX shell script, and on Windows it is the one
+/// file of the three that `CreateProcess` cannot start at all — the
+/// `os error 193` ("%1 不是有效的 Win32 应用程序") a bare first match produced.
+pub const NPM_EXE_NAMES: &[&str] = if cfg!(windows) {
+    &["npm.cmd", "npm.exe", "npm"]
+} else {
+    &["npm"]
+};
+
 /// Candidate `node` executables, most specific first.
 pub fn node_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -135,22 +148,58 @@ pub fn node_candidates() -> Vec<PathBuf> {
 
 /// The node prefix that owns an installed dsh launcher.
 ///
-/// A launcher always sits at
-/// `<prefix>/lib/node_modules/@deepseek-ai/dsh/lib/bin.js`, so walking up to
-/// the `lib/node_modules` boundary names the prefix that dsh is installed
-/// under — and therefore the `node` and `npm` that belong to it. Pure path
-/// arithmetic, so it is testable without an install.
+/// A launcher sits at `<prefix>/node_modules/@deepseek-ai/dsh/lib/bin.js` — or
+/// at `<prefix>/lib/node_modules/...`, which is how a Unix node prefix lays it
+/// out (nvm, Homebrew, a distribution package). Walking up to the
+/// `node_modules` boundary therefore names the prefix dsh is installed under,
+/// and with it the `node` and `npm` that belong to that install.
+///
+/// The boundary alone is not enough to identify one. A Harness home keeps its
+/// own module root at `$DSH_HOME/profiles/node_modules`, and a dsh resolved
+/// through that would otherwise be credited to `<DSH_HOME>/profiles` — a
+/// directory that owns neither node nor npm. So a candidate has to really hold
+/// the npm that would run here, and callers canonicalise the launcher first, so
+/// that the installation is named rather than the symlink farm in front of it.
 pub fn node_prefix_of(launcher: &Path) -> Option<PathBuf> {
+    layout_prefix(launcher, holds_npm)
+}
+
+/// The walk over the layouts, with the acceptance test injected.
+///
+/// Split from [`node_prefix_of`] so the shapes themselves are pinned without an
+/// install on disk: a machine has one layout, and both have to be tested.
+fn layout_prefix(launcher: &Path, accepts: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let mut dir = launcher.parent()?;
     loop {
         let parent = dir.parent()?;
-        let is_node_modules = dir.file_name().is_some_and(|name| name == "node_modules");
-        let under_lib = parent.file_name().is_some_and(|name| name == "lib");
-        if is_node_modules && under_lib {
-            return parent.parent().map(Path::to_path_buf);
+        if dir.file_name().is_some_and(|name| name == "node_modules") {
+            // The two layouts name their prefix one level apart: npm's Windows
+            // layout has no `lib` layer between them.
+            let candidate = if parent.file_name().is_some_and(|name| name == "lib") {
+                parent.parent()
+            } else {
+                Some(parent)
+            };
+            if let Some(prefix) = candidate.filter(|candidate| accepts(candidate)) {
+                return Some(prefix.to_path_buf());
+            }
         }
         dir = parent;
     }
+}
+
+/// Whether `dir` is an npm prefix: it holds `npm` at its root, which is npm's
+/// Windows layout, or under `bin`, which is a Unix node prefix.
+fn holds_npm(dir: &Path) -> bool {
+    npm_in(dir).is_some() || npm_in(&dir.join("bin")).is_some()
+}
+
+/// The `npm` launcher in `dir`, if it has one.
+pub fn npm_in(dir: &Path) -> Option<PathBuf> {
+    NPM_EXE_NAMES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|candidate| candidate.is_file())
 }
 
 /// The `node` that owns the dsh this process is going to run.
@@ -159,12 +208,26 @@ pub fn node_prefix_of(launcher: &Path) -> Option<PathBuf> {
 /// a minimal `PATH` where the first `node` is often an older system one, and dsh
 /// requires a much newer one. Taking that node produces a server that never
 /// comes up, or an `npm install -g` into a prefix nobody uses.
+///
+/// `None` when the prefix holds no node. A custom `npm config prefix` is a bin
+/// output directory and need not contain a node at all — on Windows it can be a
+/// tree with nothing to do with where node itself is installed — and `PATH` is
+/// what a caller falls back to there.
 pub fn node_for_dsh() -> Option<PathBuf> {
     let launcher = fs::canonicalize(resolve_dsh_bin()?).ok()?;
-    let bin_dir = node_prefix_of(&launcher)?.join("bin");
+    let prefix = node_prefix_of(&launcher)?;
+    // A Unix node prefix keeps its executable in `bin`; npm's Windows layout
+    // puts `node.exe` at the prefix root.
+    [prefix.join("bin"), prefix]
+        .into_iter()
+        .find_map(|dir| node_in(&dir))
+}
+
+/// The `node` executable in `dir`, if it has one.
+fn node_in(dir: &Path) -> Option<PathBuf> {
     NODE_EXE_NAMES
         .iter()
-        .map(|name| bin_dir.join(name))
+        .map(|name| dir.join(name))
         .find(|candidate| candidate.is_file())
 }
 
@@ -692,10 +755,22 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_bind, check_port, cookie_pair, logged_ports, node_prefix_of, recent_enough, PortChoice,
-        PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT,
+        can_bind, check_port, cookie_pair, layout_prefix, logged_ports, node_prefix_of,
+        recent_enough, PortChoice, PortMemory, Session, LOG_PORT_MAX_AGE, MIN_PORT, NPM_EXE_NAMES,
     };
     use std::path::Path;
+
+    /// A launcher at the path dsh's own package layout puts it at.
+    fn write_launcher(modules: &Path) -> std::path::PathBuf {
+        let launcher = modules
+            .join("@deepseek-ai")
+            .join("dsh")
+            .join("lib")
+            .join("bin.js");
+        std::fs::create_dir_all(launcher.parent().expect("parent")).expect("create");
+        std::fs::write(&launcher, "").expect("write");
+        launcher
+    }
 
     #[test]
     fn a_port_something_is_listening_on_cannot_be_bound() {
@@ -726,22 +801,60 @@ mod tests {
     }
 
     #[test]
-    fn the_node_prefix_is_read_off_the_launcher() {
+    fn a_prefix_is_named_with_or_without_the_lib_layer() {
+        // The acceptance test is injected so both layouts are testable here: a
+        // machine has one of them, and the walk has to know both.
+        let any = |_: &Path| true;
+
+        // A Unix node prefix puts `node_modules` under `lib`.
         assert_eq!(
-            node_prefix_of(Path::new(
-                "/opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
-            )),
+            layout_prefix(
+                Path::new("/opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"),
+                any
+            ),
             Some(Path::new("/opt/node").to_path_buf())
         );
         assert_eq!(
-            node_prefix_of(Path::new(
-                "/home/u/.nvm/versions/node/v24.21.0/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
-            )),
+            layout_prefix(
+                Path::new(
+                    "/home/u/.nvm/versions/node/v24.21.0/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"
+                ),
+                any
+            ),
             Some(Path::new("/home/u/.nvm/versions/node/v24.21.0").to_path_buf())
         );
-        // A layout without the `lib/node_modules` boundary yields nothing
-        // rather than a wrong prefix.
-        assert_eq!(node_prefix_of(Path::new("/usr/local/bin/dsh")), None);
+        // npm's own layout has no `lib` layer, and the `lib` further in belongs
+        // to the package — so the boundary is the first `node_modules`, not the
+        // literal pair `lib/node_modules`. This is the shape that used to answer
+        // `None` for every install made on Windows.
+        assert_eq!(
+            layout_prefix(
+                Path::new("/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js"),
+                any
+            ),
+            Some(Path::new("/nodejs").to_path_buf())
+        );
+        // Nothing to name without a `node_modules` boundary.
+        assert_eq!(layout_prefix(Path::new("/usr/local/bin/dsh"), any), None);
+    }
+
+    #[test]
+    fn a_module_root_that_owns_no_npm_is_not_a_prefix() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        // `$DSH_HOME/profiles/node_modules` has the shape of an npm prefix and
+        // owns no npm, so it must not be taken for one — the installation it is
+        // a symlink farm into is the one to name.
+        let profiles = dir.path().join("profiles");
+        let launcher = write_launcher(&profiles.join("node_modules"));
+        assert_eq!(node_prefix_of(&launcher), None);
+
+        // The same tree under a directory that does own npm: now it is one.
+        let global = dir.path().join("global");
+        std::fs::create_dir_all(&global).expect("create");
+        std::fs::write(global.join(NPM_EXE_NAMES[0]), "").expect("write");
+        let launcher = write_launcher(&global.join("node_modules"));
+        assert_eq!(node_prefix_of(&launcher), Some(global));
     }
 
     #[test]

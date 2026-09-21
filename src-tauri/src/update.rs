@@ -220,10 +220,16 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
 /// which is both a different prefix from the dsh in use and not writable by an
 /// ordinary user. Installing there updates nothing this shell can see, or fails
 /// outright, which is exactly what a launched-from-the-menu update used to do.
+///
+/// The prefix now comes from the launcher's own layout on either platform, so a
+/// Windows install answers too — npm's prefix is `<prefix>\node_modules` there,
+/// with no `lib` level to walk to. See [`server::node_prefix_of`].
 fn npm_for_dsh() -> Option<PathBuf> {
     let launcher = std::fs::canonicalize(server::resolve_dsh_bin()?).ok()?;
-    let bin_dir = server::node_prefix_of(&launcher)?.join("bin");
-    npm_in(&bin_dir)
+    let prefix = server::node_prefix_of(&launcher)?;
+    // The prefix holds npm at its root or under `bin`, which are the same two
+    // shapes that named it — and the one that matched is the one that answers.
+    server::npm_in(&prefix).or_else(|| server::npm_in(&prefix.join("bin")))
 }
 
 /// The `npm` to install through: the one that owns dsh, else the one beside the
@@ -235,27 +241,7 @@ fn npm_for_update() -> Result<PathBuf, String> {
     let node = server::resolve_node()
         .ok_or_else(|| "未找到 node，也无法从 dsh 安装位置推断 npm。".to_string())?;
     let bin_dir = node.parent().ok_or_else(|| "node 路径异常".to_string())?;
-    npm_in(bin_dir).ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))
-}
-
-/// The npm executable in `dir`, whichever name the platform uses.
-///
-/// npm installs `npm`, `npm.cmd` and `npm.ps1` side by side everywhere, so the
-/// answer is the platform's and not the directory listing's: the extensionless
-/// `npm` is a POSIX shell script, and on Windows handing that to `CreateProcess`
-/// is the `os error 193` ("不是有效的 Win32 应用程序") this used to report.
-/// `npm.cmd` is the one Windows runs, and it runs through the interpreter — see
-/// [`updates::install_command`].
-fn npm_in(dir: &std::path::Path) -> Option<PathBuf> {
-    let names: &[&str] = if cfg!(windows) {
-        &["npm.cmd", "npm.exe", "npm"]
-    } else {
-        &["npm"]
-    };
-    names
-        .iter()
-        .map(|name| dir.join(name))
-        .find(|candidate| candidate.is_file())
+    server::npm_in(bin_dir).ok_or_else(|| format!("未在 {} 找到 npm", bin_dir.display()))
 }
 
 /// Install one dsh version globally, then restart so the new launcher is used.
