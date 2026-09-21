@@ -80,6 +80,37 @@ const normalizeLog = (file) => changelogShape(file).map((release) => ({
 }))
 assertEqual(normalizeLog('CHANGELOG.md'), normalizeLog('CHANGELOG.en.md'), 'CHANGELOG structure differs between languages')
 
+/**
+ * The package version a manifest declares.
+ *
+ * Read the way `release.yml` reads it: the first `version = "..."` line, which
+ * is the `[package]` one. A dependency line spells its version inside braces.
+ */
+const manifestVersion = (file) => {
+  const found = read(file).match(/^version = "(.*)"$/m)
+  if (!found) throw new Error(`${file}: no package version`)
+  return found[1]
+}
+
+// The five version fields move together, and until now the only thing that
+// checked them was `release.yml` — at tag time, long after a drift could be
+// introduced on `dev`.
+const fields = [
+  ['package.json', JSON.parse(read('package.json')).version],
+  ['src-tauri/tauri.conf.json', JSON.parse(read('src-tauri/tauri.conf.json')).version],
+  ['src-tauri/Cargo.toml', manifestVersion('src-tauri/Cargo.toml')],
+  ['crates/dsh-core/Cargo.toml', manifestVersion('crates/dsh-core/Cargo.toml')],
+  ['plugins/dsh-desktop-app/package.json', JSON.parse(read('plugins/dsh-desktop-app/package.json')).version],
+]
+
+const [[firstFile, first], ...others] = fields
+for (const [file, version] of others) {
+  if (version !== first) {
+    throw new Error(`version fields disagree: ${firstFile} says ${first}, ${file} says ${version}`)
+  }
+}
+console.log(`the five version fields agree on ${first}`)
+
 /** Git's all-zero revision, which GitHub reports as `before` for a new branch. */
 const NULL_REVISION = /^0+$/
 

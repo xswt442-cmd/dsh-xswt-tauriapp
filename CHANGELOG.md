@@ -34,6 +34,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 ### 维护
 
 - Linux 上把安装包交给系统打开之后补一句 `sudo apt install` 提示：`.deb` 通常被归档管理器接管，而不是安装器。
+- `docs:check` 现在同时校验五处版本号一致，不再只等打 tag 时由 release 工作流发现；README 的环境变量表补上 `DSH_SHELL_ZOOM`。
 
 ## 0.0.9 - 2026-09-19
 

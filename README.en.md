@@ -79,6 +79,7 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | `DSH_TAURI_REGISTRY` | Overrides the version endpoint; defaults to the npm registry |
 | `DSH_SHELL_DEBUG` | When non-empty, logs the hand-off, navigation and update checks |
 | `DSH_SHELL_DEVTOOLS` | When non-empty, offers DevTools in the menu (debug builds already do) |
+| `DSH_SHELL_ZOOM` | The dsh window's initial zoom factor (0.3–3.0), which wins over the remembered one |
 | `DSH_SHELL_WAYLAND` | On Linux, do not switch to the X11 backend (see "Menus, tray and shortcuts") |
 
 ## How it works

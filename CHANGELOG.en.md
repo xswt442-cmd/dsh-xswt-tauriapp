@@ -34,6 +34,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 ### Maintenance
 
 - Linux names the `sudo apt install` command after handing the installer over: `xdg-open` on a `.deb` usually reaches an archive manager, not an installer.
+- `docs:check` also verifies that the five version fields agree, instead of leaving that to the release workflow at tag time; the README's environment table lists `DSH_SHELL_ZOOM`.
 
 ## 0.0.9 - 2026-09-19
 

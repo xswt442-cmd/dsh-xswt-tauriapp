@@ -79,6 +79,7 @@ pnpm tauri build --bundles deb,rpm,appimage
 | `DSH_TAURI_REGISTRY` | 覆盖版本查询地址，默认 npm registry |
 | `DSH_SHELL_DEBUG` | 非空时输出交接、导航与更新检查日志 |
 | `DSH_SHELL_DEVTOOLS` | 非空时在菜单中提供开发者工具（debug 构建默认提供） |
+| `DSH_SHELL_ZOOM` | dsh 窗口的初始缩放因子（0.3–3.0），优先于记忆值 |
 | `DSH_SHELL_WAYLAND` | 在 Linux 上不切换到 X11 后端（见「菜单、托盘与快捷键」） |
 
 ## 工作原理
