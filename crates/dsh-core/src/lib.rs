@@ -5,10 +5,20 @@
 //! here means it can be built and unit-tested on a machine that only has a
 //! Rust toolchain.
 //!
-//! Two halves:
+//! Everything about running dsh locally is split by what it is about, and the
+//! dependencies run one way — [`server`] is the only module that combines them:
 //!
-//! * [`server`] — find or start a local `dsh web` server and complete its
-//!   token handshake. Ported from the Electron shell so both behave the same.
+//! * [`paths`] — where dsh, `node` and `npm` are. Files only: no network, no
+//!   processes.
+//! * [`ports`] — what is on a port, whether a server could bind it, and the port
+//!   the user last asked for.
+//! * [`logs`] — the launcher log directory and the startup token read back out
+//!   of it.
+//! * [`handshake`] — dsh's two-step browser handshake, walked in Rust and
+//!   reduced to a [`handshake::Session`].
+//! * [`launch`] — spawning `dsh web` detached, and waiting for its UI.
+//! * [`server`] — the layer above those: what is already running, what a port
+//!   would do, and starting on the one that was chosen.
 //! * [`updates`] — read the published `@deepseek-ai/dsh` versions, split them
 //!   into the stable / rc / alpha channels, and remember which versions the
 //!   user asked not to be reminded about.
@@ -17,6 +27,11 @@
 //! * [`zoom`] — the guest window's zoom factor: its bounds, the value to start
 //!   at, and the file it is remembered in.
 
+pub mod handshake;
+pub mod launch;
+pub mod logs;
+pub mod paths;
+pub mod ports;
 pub mod self_update;
 pub mod server;
 pub mod updates;

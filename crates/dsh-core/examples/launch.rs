@@ -22,10 +22,10 @@
 //! happened. Exits non-zero, with the reason on stderr, when the UI never comes
 //! up.
 
-use dsh_xswt_tauriapp_core::server;
+use dsh_xswt_tauriapp_core::{launch, server};
 
 fn main() {
-    let launch = match server::launch_with_progress(server::BOOT_TIMEOUT_SECS, |message| {
+    let launch = match server::launch_with_progress(launch::BOOT_TIMEOUT_SECS, |message| {
         eprintln!("[launch] {message}");
     }) {
         Ok(launch) => launch,

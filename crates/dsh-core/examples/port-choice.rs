@@ -16,6 +16,7 @@ use std::net::TcpListener;
 use std::time::Duration;
 
 use dsh_xswt_tauriapp_core::server::{self, PortChoice};
+use dsh_xswt_tauriapp_core::{launch, ports};
 
 /// A one-shot HTTP server standing in for whatever occupies a port.
 ///
@@ -48,7 +49,7 @@ fn stand_in(status: &str, body: &'static str) -> Option<u16> {
 
 /// A free port outside the band, so the "custom port" case is genuinely custom.
 fn free_port_above(start: u16) -> Option<u16> {
-    (start..start + 50).find(|port| !server::probe_port(*port, Duration::from_millis(200)))
+    (start..start + 50).find(|port| !ports::probe_port(*port, Duration::from_millis(200)))
 }
 
 fn report(failures: &mut Vec<String>, ok: bool, label: &str, detail: String) {
@@ -85,7 +86,7 @@ fn main() {
     );
 
     // ── starting on it yields a session, and it becomes discoverable ───────
-    let band_port = match server::start_on(suggested) {
+    let band_port = match launch::start_on(suggested) {
         Ok(launch) => launch.port(),
         Err(error) => {
             eprintln!("start_on({suggested}) failed: {error}");
@@ -124,7 +125,7 @@ fn main() {
                 "a port another program owns is Occupied",
                 format!("{busy} -> {:?}", server::check_port(busy)),
             );
-            let refused = server::start_on(busy).is_err();
+            let refused = launch::start_on(busy).is_err();
             report(
                 &mut failures,
                 refused,
@@ -169,7 +170,7 @@ fn main() {
     // outside 3080–3129, and only the log file name records that it was used.
     match free_port_above(32100) {
         Some(custom) => {
-            match server::start_on(custom) {
+            match launch::start_on(custom) {
                 Ok(launch) => println!("start_on({custom}) -> {}", launch.port()),
                 Err(error) => {
                     report(&mut failures, false, "start on a custom port", error);
