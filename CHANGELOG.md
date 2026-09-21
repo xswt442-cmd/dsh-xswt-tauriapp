@@ -20,7 +20,7 @@ Release Notes 由对应版本段生成；最新版本在前。
 - 市场条目把「是否已安装」也交给 fixture 决定：Linux / macOS 的候选路径此前是 `/usr/bin`、`/Applications` 这类绝对路径，于是在装了外壳的机器上，「未安装则下载」的测试会开始失败（本机实际 6 个）。
 - 市场引导识别 WSL：`xdg-open` 在那里装不了 `.deb`，于是明确说明这一点，并提示 Windows 桌面应改取 `*-setup.exe`。
 - 交接安装包失败不再无声：打开器以非零码退出时记一行日志（`xdg-open` 在没有 `.deb` 处理器时就是这样退出的）。
-- Windows 上更新 dsh 不再以 `os error 193`（"不是有效的 Win32 应用程序"）失败：npm 的 shim 不能由 `CreateProcess` 直接启动，现在按平台挑选可执行文件（Windows 优先 `npm.cmd`，不再选中无扩展名的 POSIX 脚本），`.cmd` 经 `cmd.exe /d /s /c` 运行，并且不再闪出控制台窗口。
+- Windows 上更新 dsh 不再以 `os error 193`（"不是有效的 Win32 应用程序"）失败：npm 在同一个目录里装了一个无扩展名的 POSIX 脚本与 `npm.cmd`、`npm.ps1`，而按目录顺序选中的正是不能启动的那个；现在按平台挑选（Windows 优先 `npm.cmd`），`.cmd` 显式经 `cmd.exe /d /s /c` 运行、逐 token 加引号，并且不再闪出控制台窗口。
 - 从启动器推导 npm prefix 改为认两种目录形状：Windows 的 `<prefix>\node_modules` 没有 `lib` 这一层，此前一律推导失败，「用拥有 dsh 的那个 npm 更新」因此只在 Unix 上成立；同时要求候选目录真的持有 npm，`$DSH_HOME/profiles/node_modules` 这类模块根不会被误认成 prefix。
 
 ### 安全

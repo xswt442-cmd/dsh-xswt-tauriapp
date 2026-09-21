@@ -297,13 +297,16 @@ pub fn cmd_command_line(argv: &[String]) -> String {
 
 /// The command that installs `version` through `npm` on `os`.
 ///
-/// Windows npm is a shim, and `CreateProcess` cannot start a shim: npm installs
-/// `npm` (a POSIX shell script), `npm.cmd` and `npm.ps1` side by side, and the
-/// first two both fail in their own way when they are handed to `CreateProcess`
-/// directly — the script is not a PE image at all, which is the
-/// `os error 193` / "%1 不是有效的 Win32 应用程序" the update button used to
-/// report. A `.cmd` needs the command interpreter, whose `/c` re-parses the
-/// joined string, so the argv is quoted token by token.
+/// Windows cannot run npm's own launcher without help. npm installs `npm` (a
+/// POSIX shell script), `npm.cmd` and `npm.ps1` side by side, and the first is
+/// not a PE image at all: handing that to `CreateProcess` is the `os error 193`
+/// / "%1 不是有效的 Win32 应用程序" the update button used to report, and picking
+/// it out of the directory listing was the whole of that bug — hence the order
+/// in [`crate::server::NPM_EXE_NAMES`]. A `.cmd` *can* be started directly, but
+/// only through the implicit route `CreateProcess` takes, which leaves the
+/// interpreter's switches and the quoting of the line to whoever wrote the
+/// launcher. Going through `cmd.exe` explicitly is what makes `/d` (no AutoRun),
+/// `/s`, and the token-by-token quoting below ours to decide.
 ///
 /// `os` is a parameter rather than `cfg!` so both answers are testable on either
 /// machine — the same reason [`crate::self_update::installer_suffixes`] takes it.
