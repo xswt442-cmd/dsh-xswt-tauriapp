@@ -50,7 +50,7 @@ On the **first** dsh start after installing it, the stub reads this repository's
 Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage, together with `SHA256SUMS`. The deb depends only on `libwebkit2gtk-4.1-0` and `libgtk-3-0`:
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.9_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.10_amd64.deb"
 ```
 
 ### From source

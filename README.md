@@ -50,7 +50,7 @@ dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/re
 每个 release 附带 Windows 安装包、macOS dmg、deb、rpm 与 AppImage，以及 `SHA256SUMS`。deb 仅依赖 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`：
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.9_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.10_amd64.deb"
 ```
 
 ### 从源码构建
