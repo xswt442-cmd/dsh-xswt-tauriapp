@@ -1,5 +1,4 @@
-//! Which dsh versions exist, how they split across release channels, and which
-//! ones the user asked not to be reminded about.
+//! Which dsh versions exist, and how they split across release channels.
 //!
 //! dsh publishes on three tracks that do not share a single monotonic line:
 //! plain releases, `-rc.N` candidates and `-alpha.N` previews. The registry's
@@ -8,21 +7,12 @@
 //! from the version strings rather than from the tags.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// Where released versions are read from.
-pub const DEFAULT_REGISTRY_URL: &str = "https://registry.npmjs.org/@deepseek-ai/dsh";
-/// How many versions of each channel the report carries.
-pub const VERSIONS_PER_CHANNEL: usize = 6;
-
-/// The npm package this shell wraps.
-pub const PACKAGE: &str = "@deepseek-ai/dsh";
-
-/// Channel identifiers, in the order they are shown.
-pub const CHANNELS: [(&str, &str); 3] = [("stable", "正式版"), ("rc", "RC"), ("alpha", "Alpha")];
+use super::dismiss::DismissStore;
+use super::{CHANNELS, DEFAULT_REGISTRY_URL, VERSIONS_PER_CHANNEL};
 
 /// The registry document, reduced to the parts this shell reads.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -244,156 +234,6 @@ pub fn check(current: &str, dismissed: &DismissStore) -> Result<UpdateReport, St
     Ok(build_report(current, &doc, dismissed))
 }
 
-/// The argv that installs one version globally, or why it is not a version.
-///
-/// The listing is where these strings come from, but the value that reaches this
-/// function has been through a page and back, so it is checked rather than
-/// trusted. It ends up as an npm argument, and only a version belongs there — a
-/// rejected one costs a dialog line instead of an npm run against a spec nobody
-/// chose.
-pub fn install_argv(version: &str) -> Result<Vec<String>, String> {
-    semver::Version::parse(version)
-        .map_err(|error| format!("不是有效的版本号 {version:?}：{error}"))?;
-    Ok(vec![
-        "install".to_string(),
-        "-g".to_string(),
-        format!("{PACKAGE}@{version}"),
-    ])
-}
-
-/// How to run npm for an install, once the platform has had its say.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallCommand {
-    /// The program to execute.
-    pub program: PathBuf,
-    /// Its argv.
-    pub args: Vec<String>,
-}
-
-/// Characters cmd.exe treats as syntax even inside a token.
-const CMD_METACHARS: [char; 10] = [' ', '"', '&', '|', '<', '>', '^', '(', ')', '%'];
-
-/// Quote one argv token for a `cmd.exe /c` command line.
-///
-/// cmd groups only with double quotes, so a token that needs quoting is wrapped
-/// and its embedded quotes are doubled. `%` is in the list because cmd expands
-/// it even inside quotes; the tokens here are a path and a validated version, so
-/// the rule is stated for the one place it matters rather than because either is
-/// expected to hit it.
-pub fn cmd_quote(arg: &str) -> String {
-    if !arg.contains(CMD_METACHARS) {
-        return arg.to_string();
-    }
-    format!("\"{}\"", arg.replace('"', "\"\""))
-}
-
-/// Build a `cmd.exe /c` command line from argv.
-pub fn cmd_command_line(argv: &[String]) -> String {
-    argv.iter()
-        .map(|arg| cmd_quote(arg))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// The command that installs `version` through `npm` on `os`.
-///
-/// Windows cannot run npm's own launcher without help. npm installs `npm` (a
-/// POSIX shell script), `npm.cmd` and `npm.ps1` side by side, and the first is
-/// not a PE image at all: handing that to `CreateProcess` is the `os error 193`
-/// / "%1 不是有效的 Win32 应用程序" the update button used to report, and picking
-/// it out of the directory listing was the whole of that bug — hence the order
-/// in [`crate::server::NPM_EXE_NAMES`]. A `.cmd` *can* be started directly, but
-/// only through the implicit route `CreateProcess` takes, which leaves the
-/// interpreter's switches and the quoting of the line to whoever wrote the
-/// launcher. Going through `cmd.exe` explicitly is what makes `/d` (no AutoRun),
-/// `/s`, and the token-by-token quoting below ours to decide.
-///
-/// `os` is a parameter rather than `cfg!` so both answers are testable on either
-/// machine — the same reason [`crate::self_update::installer_suffixes`] takes it.
-pub fn install_command(npm: &Path, version: &str, os: &str) -> Result<InstallCommand, String> {
-    let args = install_argv(version)?;
-    if os != "windows" {
-        return Ok(InstallCommand {
-            program: npm.to_path_buf(),
-            args,
-        });
-    }
-    let mut line: Vec<String> = Vec::with_capacity(args.len() + 1);
-    line.push(npm.display().to_string());
-    line.extend(args);
-    Ok(InstallCommand {
-        program: PathBuf::from("cmd.exe"),
-        args: vec![
-            "/d".to_string(),
-            "/s".to_string(),
-            "/c".to_string(),
-            cmd_command_line(&line),
-        ],
-    })
-}
-
-/// Versions the user asked not to be reminded about, persisted as JSON.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct DismissStore {
-    /// Dismissed version strings.
-    #[serde(default)]
-    pub dismissed: Vec<String>,
-    /// Where the list is persisted. Absent for in-memory use.
-    #[serde(skip)]
-    pub path: Option<PathBuf>,
-}
-
-impl DismissStore {
-    /// An in-memory store, for tests and for a failed load.
-    pub fn in_memory() -> Self {
-        Self::default()
-    }
-
-    /// Load from `path`, falling back to an empty list when the file is
-    /// missing or unreadable. A corrupt file must never block startup.
-    pub fn load(path: impl AsRef<Path>) -> Self {
-        let path = path.as_ref().to_path_buf();
-        let mut store = match std::fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str::<Self>(&text).unwrap_or_default(),
-            Err(_) => Self::default(),
-        };
-        store.path = Some(path);
-        store
-    }
-
-    /// Persist the list, creating parent directories as needed.
-    pub fn save(&self) -> Result<(), String> {
-        let Some(path) = &self.path else {
-            return Ok(());
-        };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("创建目录失败：{error}"))?;
-        }
-        let text =
-            serde_json::to_string_pretty(self).map_err(|error| format!("序列化失败：{error}"))?;
-        std::fs::write(path, text).map_err(|error| format!("写入失败：{error}"))
-    }
-
-    /// Whether `version` is on the list.
-    pub fn is_dismissed(&self, version: &str) -> bool {
-        self.dismissed.iter().any(|entry| entry == version)
-    }
-
-    /// Add `version` and persist.
-    pub fn dismiss(&mut self, version: &str) -> Result<(), String> {
-        if !self.is_dismissed(version) {
-            self.dismissed.push(version.to_string());
-        }
-        self.save()
-    }
-
-    /// Forget everything, so the next launch prompts again.
-    pub fn clear(&mut self) -> Result<(), String> {
-        self.dismissed.clear();
-        self.save()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,108 +378,5 @@ mod tests {
         assert_eq!(report.candidate.as_ref().unwrap().version, "0.1.5-rc.3");
         assert!(!report.candidate_dismissed);
         assert!(report.should_prompt());
-    }
-
-    #[test]
-    fn dismiss_store_round_trips_through_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested").join("updates.json");
-
-        let mut store = DismissStore::load(&path);
-        assert!(store.dismissed.is_empty(), "missing file loads as empty");
-        store.dismiss("0.1.6-alpha.1").unwrap();
-        store.dismiss("0.1.6-alpha.1").unwrap();
-
-        let reloaded = DismissStore::load(&path);
-        assert_eq!(reloaded.dismissed, vec!["0.1.6-alpha.1".to_string()]);
-        assert!(reloaded.is_dismissed("0.1.6-alpha.1"));
-        assert!(!reloaded.is_dismissed("0.1.6-alpha.2"));
-
-        let mut cleared = reloaded.clone();
-        cleared.clear().unwrap();
-        assert!(DismissStore::load(&path).dismissed.is_empty());
-    }
-
-    #[test]
-    fn corrupt_dismiss_file_does_not_break_startup() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("updates.json");
-        std::fs::write(&path, "{ this is not json").unwrap();
-        assert!(DismissStore::load(&path).dismissed.is_empty());
-    }
-
-    #[test]
-    fn install_command_targets_the_requested_version() {
-        assert_eq!(
-            install_argv("0.1.6-alpha.1").expect("a version"),
-            vec!["install", "-g", "@deepseek-ai/dsh@0.1.6-alpha.1"]
-        );
-    }
-
-    #[test]
-    fn a_value_that_is_not_a_version_never_becomes_an_npm_argument() {
-        // The page sends this back, so it is checked rather than trusted.
-        for rejected in [
-            "",
-            "latest",
-            "0.1.6; rm -rf /",
-            "--force",
-            "@scope/other@1.0.0",
-        ] {
-            assert!(
-                install_argv(rejected).is_err(),
-                "{rejected:?} should not become an install target"
-            );
-        }
-    }
-
-    #[test]
-    fn an_install_on_windows_goes_through_the_command_interpreter() {
-        let command = install_command(
-            Path::new(r"C:\Program Files\nodejs\npm.cmd"),
-            "0.1.6-alpha.1",
-            "windows",
-        )
-        .expect("a command");
-        assert_eq!(command.program, PathBuf::from("cmd.exe"));
-        assert_eq!(
-            command.args,
-            vec![
-                "/d".to_string(),
-                "/s".to_string(),
-                "/c".to_string(),
-                r#""C:\Program Files\nodejs\npm.cmd" install -g @deepseek-ai/dsh@0.1.6-alpha.1"#
-                    .to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_install_elsewhere_runs_npm_directly() {
-        let command = install_command(Path::new("/usr/local/bin/npm"), "0.1.6-alpha.1", "linux")
-            .expect("a command");
-        assert_eq!(command.program, PathBuf::from("/usr/local/bin/npm"));
-        assert_eq!(
-            command.args,
-            vec!["install", "-g", "@deepseek-ai/dsh@0.1.6-alpha.1"]
-        );
-    }
-
-    #[test]
-    fn only_a_token_cmd_would_reparse_is_quoted() {
-        assert_eq!(cmd_quote("install"), "install");
-        assert_eq!(cmd_quote("a b"), "\"a b\"");
-        assert_eq!(cmd_quote("a\"b"), "\"a\"\"b\"");
-        assert_eq!(cmd_quote("100%"), "\"100%\"");
-        assert_eq!(
-            cmd_command_line(&["a".to_string(), "b c".to_string()]),
-            "a \"b c\""
-        );
-    }
-
-    #[test]
-    fn a_bad_version_is_refused_by_the_command_builder_too() {
-        assert!(install_command(Path::new("/usr/bin/npm"), "latest", "linux").is_err());
-        assert!(install_command(Path::new("npm.cmd"), "0.1.6; rm -rf /", "windows").is_err());
     }
 }
