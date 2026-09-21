@@ -26,6 +26,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 ### Security
 
 - The bootstrap window's navigation policy admits only the bundled assets: it is the only window granted a capability, and any page on any loopback port could previously load there and reach the command surface.
+- An external link is no longer opened through `cmd /C start` on Windows: cmd re-parses the string it is handed, so a `&` in a URL's query string ends the command and runs what follows (reachable from any link the dsh page renders), and `%VAR%` is expanded even inside quotes. `explorer` takes the URL as its own argument and does neither.
 
 ### Maintenance
 

@@ -467,26 +467,40 @@ pub fn is_shell_asset(url: &tauri::Url) -> bool {
 ///
 /// Deliberately not `tauri-plugin-opener`: the whole shell only ever needs
 /// "open this http(s) URL", and a plugin would add a dependency, a capability
-/// entry and a permission surface for four lines of work.
+/// entry and a permission surface for a few lines of work.
+///
+/// Windows gets `explorer` rather than `cmd /C start`. `cmd` re-parses the
+/// string it is handed, and a URL is not a token: a `&` in a query string ends
+/// the command, so `http://host/?a=1&<anything>` runs `<anything>` in the user's
+/// own session — reachable from any link the dsh page renders, which is every
+/// link in a model's output or a plugin's client code. Quoting the URL closes
+/// that hole, but cmd expands `%VAR%` even inside quotes, so a link could still
+/// name an environment variable and have its value handed to the browser.
+/// `explorer` takes the URL as its own argument and neither parses nor expands
+/// it; `open` and `xdg-open` already work that way.
 pub fn open_external(url: &str) {
-    let program = if cfg!(target_os = "windows") {
-        "cmd"
-    } else if cfg!(target_os = "macos") {
+    let _ = Command::new(opener_for(std::env::consts::OS))
+        .arg(url)
+        .spawn();
+}
+
+/// The program that hands a URL to the desktop's default handler.
+///
+/// Split out so the platform's answer is readable in one place, and pinnable —
+/// see [`open_external`] for why the Windows one is not the command interpreter.
+fn opener_for(os: &str) -> &'static str {
+    if os == "windows" {
+        "explorer"
+    } else if os == "macos" {
         "open"
     } else {
         "xdg-open"
-    };
-    let mut command = Command::new(program);
-    if cfg!(target_os = "windows") {
-        // `start` is a cmd builtin; the empty argument is the window title.
-        command.args(["/C", "start", ""]);
     }
-    let _ = command.arg(url).spawn();
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_internal, is_shell_asset};
+    use super::{is_internal, is_shell_asset, opener_for};
 
     fn url(value: &str) -> tauri::Url {
         value.parse().expect("test URL must parse")
@@ -532,5 +546,16 @@ mod tests {
         assert!(!is_internal(&url("http://evil.example:3080/")));
         assert!(!is_internal(&url("mailto:a@b.c")));
         assert!(!is_internal(&url("file:///etc/passwd")));
+    }
+
+    #[test]
+    fn a_link_is_never_opened_through_a_command_interpreter() {
+        // `cmd /C start` re-parses its argument, so a `&` inside a URL ends the
+        // command and whatever follows it runs; `%VAR%` is expanded even inside
+        // quotes. A URL is not a token, and the opener has to be one that takes
+        // it whole — which rules out the interpreter this used to go through.
+        assert_eq!(opener_for("windows"), "explorer");
+        assert_eq!(opener_for("macos"), "open");
+        assert_eq!(opener_for("linux"), "xdg-open");
     }
 }
