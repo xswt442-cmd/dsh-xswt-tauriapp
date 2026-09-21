@@ -213,6 +213,7 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
     };
 
     let load_shell = shell.clone();
+    let session_url = url.clone();
     let window = match WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
         .title("DeepSeek Harness")
         .inner_size(1500.0, 940.0)
@@ -225,8 +226,9 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         .background_color(tauri::window::Color(0x14, 0x14, 0x14, 0xff))
         .on_navigation(move |url| {
             // A link that would replace dsh in the same webview opens in the
-            // real browser instead.
-            let internal = is_internal(url);
+            // real browser instead — including one that points at another local
+            // dsh, whose session this window cannot enter.
+            let internal = is_session(url, &session_url);
             shell_log!(
                 "[dsh-harness] guest navigate {} -> {}",
                 url,
@@ -444,29 +446,36 @@ pub fn toggle_devtools(app: &AppHandle) {
 
 // ── link policy ────────────────────────────────────────────────────────────
 
-/// The window's own scheme, plus anything on loopback, stays inside the webview:
-/// the bundled bootstrap page and the dsh UI. Everything else is a link out.
-pub fn is_internal(url: &tauri::Url) -> bool {
+/// Whether `url` is the session this window was handed, and nothing else.
+///
+/// Narrower than "anything on loopback", deliberately. dsh names its session
+/// cookie after the whole authority it was minted for — `dsh-auth-<hash>` over
+/// `host:port` — so another loopback port is a different session, and so is the
+/// same port spelled `localhost` instead of `127.0.0.1`. Either one would land
+/// the window on dsh's 401 page with no way forward, which reads as a broken
+/// shell; handing it to the browser instead is the honest answer, and that is
+/// what a `false` here means to the caller.
+///
+/// The webview's own scheme is the exception. Nothing in the guest navigates to
+/// `tauri://`, but treating one as a link out would be worse than allowing it.
+pub fn is_session(url: &tauri::Url, session: &tauri::Url) -> bool {
     match url.scheme() {
         "tauri" | "asset" => true,
-        "http" | "https" => url.host_str().is_some_and(|host| {
-            host == "localhost"
-                || host == "127.0.0.1"
-                || host == "::1"
-                || host == "::ffff:127.0.0.1"
-                || host.ends_with(".localhost")
-        }),
+        "http" | "https" => {
+            url.scheme() == session.scheme()
+                && url.host_str() == session.host_str()
+                && url.port_or_known_default() == session.port_or_known_default()
+        }
         _ => false,
     }
 }
 
 /// The bootstrap window's own origins, and nothing else.
 ///
-/// Much narrower than [`is_internal`] on purpose. The bootstrap page is the only
+/// Much narrower than [`is_session`] on purpose. The bootstrap page is the only
 /// window a capability is granted to, so anything allowed to load in it can call
-/// the shell's commands — and `is_internal` waves through *any* loopback port,
-/// which on a shared machine belongs to whichever program claimed it. The page
-/// needs exactly one origin: the assets it was bundled with.
+/// the shell's commands — and even the dsh session is a page this shell does not
+/// own. This window needs exactly one origin: the assets it was bundled with.
 pub fn is_shell_asset(url: &tauri::Url) -> bool {
     match url.scheme() {
         "tauri" | "asset" => true,
@@ -514,35 +523,54 @@ fn opener_for(os: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_internal, is_shell_asset, opener_for};
+    use super::{is_session, is_shell_asset, opener_for};
 
     fn url(value: &str) -> tauri::Url {
         value.parse().expect("test URL must parse")
     }
 
     #[test]
-    fn the_bundled_page_stays_in_the_webview() {
-        // Getting this wrong blanks the window before anything else can run,
-        // so it is pinned by a test.
-        assert!(is_internal(&url("tauri://localhost/index.html")));
-        assert!(is_internal(&url("tauri://localhost/")));
-        // Windows serves app assets over http://tauri.localhost.
-        assert!(is_internal(&url("http://tauri.localhost/index.html")));
-    }
+    fn only_the_session_itself_stays_in_the_webview() {
+        // The guest's first load is the hand-off itself: if the policy treated it
+        // as a link out, the window would stay blank forever. The cases below it
+        // are the ones that used to be waved through and cannot be entered —
+        // dsh names its cookie after the authority it was minted for.
+        let session = url("http://127.0.0.1:3080/");
 
-    #[test]
-    fn the_local_dsh_ui_stays_in_the_webview() {
-        // The guest's first load is the hand-off itself: if the policy treated
-        // it as a link out, the window would stay blank forever.
-        assert!(is_internal(&url("http://127.0.0.1:3080/")));
-        assert!(is_internal(&url("http://localhost:3129/")));
-        assert!(is_internal(&url("http://127.0.0.1:3082/xswt-bg/sky.jpg")));
+        assert!(is_session(&url("http://127.0.0.1:3080/"), &session));
+        // The page's own sub-navigations and the assets it serves itself.
+        assert!(is_session(
+            &url("http://127.0.0.1:3080/xswt-bg/sky.jpg"),
+            &session
+        ));
+
+        // Another loopback port is another dsh, or somebody else's server.
+        assert!(!is_session(&url("http://127.0.0.1:3081/"), &session));
+        assert!(!is_session(&url("http://127.0.0.1:3129/"), &session));
+        // The same port spelled differently is a different cookie name, so the
+        // window could not log in to it either.
+        assert!(!is_session(&url("http://localhost:3080/"), &session));
+        assert!(!is_session(&url("https://127.0.0.1:3080/"), &session));
+
+        // Everything else is a link out.
+        assert!(!is_session(
+            &url("https://github.com/deepseek-ai"),
+            &session
+        ));
+        assert!(!is_session(&url("http://example.com/"), &session));
+        assert!(!is_session(&url("http://evil.example:3080/"), &session));
+        assert!(!is_session(&url("mailto:a@b.c"), &session));
+        assert!(!is_session(&url("file:///etc/passwd"), &session));
+
+        // The webview's own scheme is never a link out.
+        assert!(is_session(&url("tauri://localhost/index.html"), &session));
+        assert!(is_session(&url("tauri://localhost/"), &session));
     }
 
     #[test]
     fn the_bootstrap_window_accepts_only_its_own_assets() {
-        // The window the capability belongs to. `is_internal` would also allow
-        // every loopback port, which is whoever claimed it, not the shell.
+        // The window the capability belongs to. Even the dsh session is a page
+        // this shell does not own, so this window gets one origin and no more.
         assert!(is_shell_asset(&url("tauri://localhost/index.html")));
         assert!(is_shell_asset(&url("http://tauri.localhost/index.html")));
         assert!(!is_shell_asset(&url("http://127.0.0.1:3080/")));
@@ -550,16 +578,6 @@ mod tests {
         // One host, not a suffix: another `*.localhost` is somebody else's page.
         assert!(!is_shell_asset(&url("http://not-the-shell.localhost/")));
         assert!(!is_shell_asset(&url("https://github.com/deepseek-ai")));
-    }
-
-    #[test]
-    fn anything_else_is_a_link_out() {
-        assert!(!is_internal(&url("https://github.com/deepseek-ai")));
-        assert!(!is_internal(&url("http://example.com/")));
-        // A remote host must not slip through on the loopback port band.
-        assert!(!is_internal(&url("http://evil.example:3080/")));
-        assert!(!is_internal(&url("mailto:a@b.c")));
-        assert!(!is_internal(&url("file:///etc/passwd")));
     }
 
     #[test]

@@ -29,6 +29,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - The bootstrap window's navigation policy admits only the bundled assets: it is the only window granted a capability, and any page on any loopback port could previously load there and reach the command surface.
 - An external link is no longer opened through `cmd /C start` on Windows: cmd re-parses the string it is handed, so a `&` in a URL's query string ends the command and runs what follows (reachable from any link the dsh page renders), and `%VAR%` is expanded even inside quotes. `explorer` takes the URL as its own argument and does neither.
+- The dsh window admits only the session it was handed: any loopback address used to stay inside it, but dsh names its session cookie after the full authority it was minted for, so another port — or the same port spelled `localhost` — could only ever reach its 401 page. Those links open in the system browser now.
 
 ### Maintenance
 
