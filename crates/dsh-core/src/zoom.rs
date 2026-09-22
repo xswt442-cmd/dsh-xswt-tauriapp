@@ -54,7 +54,7 @@ pub fn initial(stored: Option<f64>, from_env: Option<&str>) -> f64 {
 
 /// The remembered zoom factor.
 ///
-/// Deliberately shaped like [`crate::server::PortMemory`]: a tiny JSON file under
+/// Deliberately shaped like [`crate::ports::PortMemory`]: a tiny JSON file under
 /// the application config directory, a corrupt file read as "nothing
 /// remembered", and no error that can stop startup.
 #[derive(Debug, Clone, Serialize, Deserialize)]

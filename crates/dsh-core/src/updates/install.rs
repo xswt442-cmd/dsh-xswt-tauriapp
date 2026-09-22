@@ -65,7 +65,7 @@ pub fn cmd_command_line(argv: &[String]) -> String {
 /// not a PE image at all: handing that to `CreateProcess` is the `os error 193`
 /// / "%1 不是有效的 Win32 应用程序" the update button used to report, and picking
 /// it out of the directory listing was the whole of that bug — hence the order
-/// in [`crate::server::NPM_EXE_NAMES`]. A `.cmd` *can* be started directly, but
+/// in [`crate::paths::NPM_EXE_NAMES`]. A `.cmd` *can* be started directly, but
 /// only through the implicit route `CreateProcess` takes, which leaves the
 /// interpreter's switches and the quoting of the line to whoever wrote the
 /// launcher. Going through `cmd.exe` explicitly is what makes `/d` (no AutoRun),
@@ -73,6 +73,10 @@ pub fn cmd_command_line(argv: &[String]) -> String {
 ///
 /// `os` is a parameter rather than `cfg!` so both answers are testable on either
 /// machine — the same reason [`crate::self_update::installer_suffixes`] takes it.
+///
+/// The path handed in must be a plain one: `cmd.exe` cannot resolve a verbatim
+/// (`\\?\`) path and exits 1 on one, which is what [`crate::paths::strip_verbatim`]
+/// exists to keep out of here.
 pub fn install_command(npm: &Path, version: &str, os: &str) -> Result<InstallCommand, String> {
     let args = install_argv(version)?;
     if os != "windows" {

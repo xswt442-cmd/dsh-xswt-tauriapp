@@ -55,30 +55,14 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
     payload
 }
 
-/// The `npm` that owns the dsh this shell is actually running against.
-///
-/// Derived from the launcher rather than from `PATH`. A desktop launch inherits
-/// a minimal `PATH`, where the first `node` is often an older system one — on
-/// this machine `/usr/bin/node` is v18 and its npm installs into `/usr/local`,
-/// which is both a different prefix from the dsh in use and not writable by an
-/// ordinary user. Installing there updates nothing this shell can see, or fails
-/// outright, which is exactly what a launched-from-the-menu update used to do.
-///
-/// The prefix now comes from the launcher's own layout on either platform, so a
-/// Windows install answers too — npm's prefix is `<prefix>\node_modules` there,
-/// with no `lib` level to walk to. See [`paths::node_prefix_of`].
-fn npm_for_dsh() -> Option<PathBuf> {
-    let launcher = std::fs::canonicalize(paths::resolve_dsh_bin()?).ok()?;
-    let prefix = paths::node_prefix_of(&launcher)?;
-    // The prefix holds npm at its root or under `bin`, which are the same two
-    // shapes that named it — and the one that matched is the one that answers.
-    paths::npm_in(&prefix).or_else(|| paths::npm_in(&prefix.join("bin")))
-}
-
 /// The `npm` to install through: the one that owns dsh, else the one beside the
 /// resolved `node`, else nothing.
+///
+/// The first answer comes from [`paths::npm_for_dsh`], which is the one place
+/// that decides it — derived from the launcher rather than from `PATH`, whose
+/// first `node` is often an older system one with a prefix of its own.
 fn npm_for_update() -> Result<PathBuf, String> {
-    if let Some(npm) = npm_for_dsh() {
+    if let Some(npm) = paths::npm_for_dsh() {
         return Ok(npm);
     }
     let node = paths::resolve_node()

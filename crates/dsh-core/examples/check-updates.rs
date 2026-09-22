@@ -19,6 +19,10 @@ fn main() {
         Some(bin) => println!("dsh launcher   : {}", bin.display()),
         None => println!("dsh launcher   : ✗ 未找到"),
     }
+    match paths::npm_for_dsh() {
+        Some(npm) => println!("npm 装 dsh 的  : {}", npm.display()),
+        None => println!("npm 装 dsh 的  : ✗ 未找到"),
+    }
     match paths::installed_version() {
         Some(version) => println!("dsh 版本       : {version}"),
         None => println!("dsh 版本       : ✗ 无法读取"),
@@ -96,6 +100,29 @@ fn main() {
                 .map(|argv| argv.join(" "))
                 .unwrap_or_else(|error| format!("<{error}>"))
             );
+
+            // The command as the update button builds it on this platform: which
+            // npm, and through what. Printed, never run — the moment this reaches
+            // npm it is an install, not a diagnostic.
+            println!("\n== 本平台的安装命令（未执行）==");
+            match report.candidate.as_ref() {
+                None => println!("(无候选版本)"),
+                Some(candidate) => match paths::npm_for_dsh() {
+                    None => println!("✗ 没有找到能安装 dsh 的 npm"),
+                    Some(npm) => {
+                        match updates::install_command(
+                            &npm,
+                            &candidate.version,
+                            std::env::consts::OS,
+                        ) {
+                            Ok(command) => {
+                                println!("{} {}", command.program.display(), command.args.join(" "))
+                            }
+                            Err(error) => println!("✗ {error}"),
+                        }
+                    }
+                },
+            }
         }
     }
 }

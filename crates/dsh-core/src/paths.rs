@@ -5,6 +5,7 @@
 //! module answers "which file", which is what the layers above need before they
 //! can do either.
 
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -162,13 +163,34 @@ pub fn npm_in(dir: &Path) -> Option<PathBuf> {
 /// tree with nothing to do with where node itself is installed — and `PATH` is
 /// what a caller falls back to there.
 pub fn node_for_dsh() -> Option<PathBuf> {
-    let launcher = fs::canonicalize(resolve_dsh_bin()?).ok()?;
+    let launcher = canonical_dsh_bin()?;
     let prefix = node_prefix_of(&launcher)?;
     // A Unix node prefix keeps its executable in `bin`; npm's Windows layout
     // puts `node.exe` at the prefix root.
     [prefix.join("bin"), prefix]
         .into_iter()
         .find_map(|dir| node_in(&dir))
+}
+
+/// The `npm` that owns the dsh this shell is running against.
+///
+/// Derived from the launcher rather than from `PATH`. A desktop launch inherits
+/// a minimal `PATH`, where the first `node` is often an older system one — with
+/// a distribution node, `/usr/bin/node` is years behind and its npm installs
+/// into `/usr/local`, which is both a different prefix from the dsh in use and
+/// not writable by an ordinary user. Installing there updates nothing this shell
+/// can see, or fails outright, which is exactly what a launched-from-the-menu
+/// update used to do.
+///
+/// The prefix comes from the launcher's own layout on either platform, so a
+/// Windows install answers too — npm's prefix is `<prefix>\node_modules` there,
+/// with no `lib` level to walk to. See [`node_prefix_of`].
+pub fn npm_for_dsh() -> Option<PathBuf> {
+    let launcher = canonical_dsh_bin()?;
+    let prefix = node_prefix_of(&launcher)?;
+    // The prefix holds npm at its root or under `bin`, which are the same two
+    // shapes that named it — and the one that matched is the one that answers.
+    npm_in(&prefix).or_else(|| npm_in(&prefix.join("bin")))
 }
 
 /// The `node` executable in `dir`, if it has one.
@@ -228,6 +250,59 @@ pub fn resolve_dsh_bin() -> Option<PathBuf> {
     dsh_bin_candidates().into_iter().find(|p| p.is_file())
 }
 
+/// The launcher, resolved through any symlinks and without Windows' verbatim
+/// prefix.
+///
+/// One function because the two transformations belong together: a resolved path
+/// is what *names* the installation — following the symlink is how the prefix
+/// that owns dsh is found rather than the farm of links in front of it — and a
+/// plain path is what a command line can *carry*. Splitting them let a resolved
+/// path reach `cmd.exe`, which cannot run it.
+pub fn canonical_dsh_bin() -> Option<PathBuf> {
+    Some(strip_verbatim(&fs::canonicalize(resolve_dsh_bin()?).ok()?))
+}
+
+/// Drop the `\\?\` prefix `fs::canonicalize` puts on a Windows path.
+///
+/// `CreateProcess` accepts a verbatim path; `cmd.exe` does not. Handed one it
+/// answers 系统找不到指定的路径 — in the console's own code page — and exits 1, which
+/// is how "update and restart" reported the npm it was about to run. This is the
+/// only Windows path the crate builds, and it is carried into a command line
+/// (see [`crate::updates::install_command`]), logged and shown, so the plain form
+/// is the one kept.
+///
+/// Two shapes are rewritten, because two have a plain equivalent: a drive letter
+/// (`\\?\C:\…` → `C:\…`) and a UNC share (`\\?\UNC\server\share` →
+/// `\\server\share`). A verbatim path that is neither — a volume GUID, a device
+/// path — is left exactly as it came, since inventing a form for those would
+/// name something else.
+///
+/// A path that is not valid Unicode is left alone for the same reason: rebuilding
+/// it from a lossy string would not be the same path.
+pub fn strip_verbatim(path: &Path) -> PathBuf {
+    /// What `fs::canonicalize` puts in front on Windows.
+    const VERBATIM: &str = "\\\\?\\";
+    let Cow::Borrowed(text) = path.to_string_lossy() else {
+        return path.to_path_buf();
+    };
+    let Some(rest) = text.strip_prefix(VERBATIM) else {
+        return path.to_path_buf();
+    };
+    // `\\?\UNC\server\share\…`: the separator between server and share is a
+    // real one, so the plain form keeps both.
+    if let Some(share) = rest.strip_prefix("UNC\\") {
+        return PathBuf::from(format!("\\\\{share}"));
+    }
+    // `\\?\C:\…`: a drive letter, the only other shape with a plain form.
+    let mut chars = rest.chars();
+    let drive_letter = matches!(chars.next(), Some(letter) if letter.is_ascii_alphabetic())
+        && chars.next() == Some(':');
+    if drive_letter {
+        return PathBuf::from(rest);
+    }
+    path.to_path_buf()
+}
+
 /// The version of the installed dsh, read from the resolved launcher's
 /// `package.json` (`…/dsh/lib/bin.js` → `…/dsh/package.json`).
 pub fn installed_version() -> Option<String> {
@@ -240,9 +315,9 @@ pub fn installed_version() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::{layout_prefix, node_prefix_of, NPM_EXE_NAMES};
+    use super::{layout_prefix, node_prefix_of, strip_verbatim, NPM_EXE_NAMES};
 
     /// A launcher at the path dsh's own package layout puts it at.
     fn write_launcher(modules: &Path) -> std::path::PathBuf {
@@ -311,5 +386,44 @@ mod tests {
         std::fs::write(global.join(NPM_EXE_NAMES[0]), "").expect("write");
         let launcher = write_launcher(&global.join("node_modules"));
         assert_eq!(node_prefix_of(&launcher), Some(global));
+    }
+
+    #[test]
+    fn a_resolved_windows_path_loses_its_verbatim_prefix() {
+        // The path shape `fs::canonicalize` answers on Windows, and the one
+        // `cmd.exe` can be handed. The walk is pure string work, so both shapes
+        // are pinned here rather than on the machine that produces one of them.
+        assert_eq!(
+            strip_verbatim(Path::new(r"\\?\E:\nodejs_global\npm.cmd")),
+            Path::new(r"E:\nodejs_global\npm.cmd")
+        );
+        // The UNC form keeps both of its separators.
+        assert_eq!(
+            strip_verbatim(Path::new(r"\\?\UNC\server\share\npm.cmd")),
+            Path::new(r"\\server\share\npm.cmd")
+        );
+    }
+
+    #[test]
+    fn a_verbatim_path_with_no_plain_form_is_left_alone() {
+        // A volume GUID and a device path have no form `cmd.exe` could run, so
+        // nothing is invented for them: rewriting `\\?\Volume{…}\` into
+        // `\Volume{…}\` would name a different path.
+        for unchanged in [r"\\?\Volume{9f2}\x", r"\\.\pipe\npm"] {
+            assert_eq!(
+                strip_verbatim(Path::new(unchanged)),
+                PathBuf::from(unchanged)
+            );
+        }
+    }
+
+    #[test]
+    fn a_path_that_never_had_a_prefix_is_unchanged() {
+        for unchanged in [r"E:\nodejs_global\npm.cmd", "/usr/local/bin/npm", "npm"] {
+            assert_eq!(
+                strip_verbatim(Path::new(unchanged)),
+                PathBuf::from(unchanged)
+            );
+        }
     }
 }

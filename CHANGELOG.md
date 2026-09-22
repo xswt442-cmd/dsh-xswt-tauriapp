@@ -3,6 +3,12 @@
 Release Notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## Unreleased
+
+### 修复
+
+- Windows 上更新 dsh 不再因 `\\?\` 前缀路径而失败：从启动器推导出的 npm 路径在进入命令行前会去掉该前缀，而 `cmd.exe` 无法执行那种路径。
+
 ## 0.0.10 - 2026-09-21
 
 ### 新增

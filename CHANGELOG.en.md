@@ -3,6 +3,12 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Fixed
+
+- Updating dsh on Windows no longer fails on a `\\?\` path: the npm derived from the launcher loses that prefix before it reaches the command line, which is the only form `cmd.exe` can run.
+
 ## 0.0.10 - 2026-09-21
 
 ### Added
