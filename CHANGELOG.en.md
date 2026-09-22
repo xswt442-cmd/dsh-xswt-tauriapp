@@ -8,6 +8,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 ### Fixed
 
 - Updating dsh on Windows no longer fails on a `\\?\` path: the npm derived from the launcher loses that prefix before it reaches the command line, which is the only form `cmd.exe` can run.
+- A failed update no longer explains itself in replacement characters: a child's output is read as UTF-8, and as the machine's OEM code page when that fails, where Windows' own messages are written.
 
 ## 0.0.10 - 2026-09-21
 

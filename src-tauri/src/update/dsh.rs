@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use dsh_xswt_tauriapp_core::{paths, updates};
+use dsh_xswt_tauriapp_core::{console, paths, updates};
 use tauri::{AppHandle, Emitter};
 
 use crate::shell_log;
@@ -98,8 +98,11 @@ pub fn install(app: &AppHandle, version: &str) -> Result<(), String> {
         .output()
         .map_err(|error| format!("执行 npm 失败：{error}"))?;
     if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Not lossy: npm writes UTF-8, Windows writes its own messages in the
+        // console's code page, and the second kind is what an install actually
+        // fails with — decoded as UTF-8 those arrived as replacement characters.
+        let stdout = console::decode(&output.stdout);
+        let stderr = console::decode(&output.stderr);
         return Err(format!(
             "{} {} 失败（退出码 {:?}）\n{}\n{}",
             npm.display(),

@@ -8,6 +8,8 @@
 //! Everything about running dsh locally is split by what it is about, and the
 //! dependencies run one way — [`server`] is the only module that combines them:
 //!
+//! * [`console`] — decoding what a child process wrote to its console: UTF-8
+//!   when it is, the machine's own code page when a Windows message is not.
 //! * [`paths`] — where dsh, `node` and `npm` are. Files only: no network, no
 //!   processes.
 //! * [`ports`] — what is on a port, whether a server could bind it, and the port
@@ -27,6 +29,7 @@
 //! * [`zoom`] — the guest window's zoom factor: its bounds, the value to start
 //!   at, and the file it is remembered in.
 
+pub mod console;
 pub mod handshake;
 pub mod launch;
 pub mod logs;
