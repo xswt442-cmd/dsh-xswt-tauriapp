@@ -74,6 +74,34 @@ pub fn open_external(url: &str) {
         .spawn();
 }
 
+/// Hand a verified installer to the desktop's opener, and say whether it went.
+///
+/// The difference from [`open_external`] is that this one waits — on every
+/// platform where the opener's exit code means something. `xdg-open` on a machine
+/// that has no handler for a `.deb` (a bare WSL image is the usual one) runs,
+/// exits non-zero and opens nothing, and a caller that neither waits nor looks
+/// cannot tell that apart from a successful hand-off: the shell reported
+/// "installer opened" on a machine where nothing at all had happened.
+///
+/// Windows keeps the fire-and-forget spawn: `explorer` hands the file to another
+/// process and its exit code is not a statement about the file, so waiting there
+/// would invent failures. What the user asked for is that the opener be *tried*.
+pub fn open_installer(path: &std::path::Path) -> Result<(), String> {
+    let program = opener_for(std::env::consts::OS);
+    if cfg!(windows) {
+        return Command::new(program)
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("无法运行 {program}：{error}"));
+    }
+    match Command::new(program).arg(path).output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(format!("{program} 退出码 {:?}", output.status.code())),
+        Err(error) => Err(format!("无法运行 {program}：{error}")),
+    }
+}
+
 /// The program that hands a URL to the desktop's default handler.
 ///
 /// Split out so the platform's answer is readable in one place, and pinnable —

@@ -10,6 +10,7 @@
 //! a failed launch.
 
 use dsh_xswt_tauriapp_core::self_update;
+use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
 use crate::shell_log;
@@ -119,18 +120,83 @@ pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
         installer.name,
         path.display()
     );
-    crate::link::open_external(&path.display().to_string());
-    // On Linux the opener is `xdg-open`, and for a `.deb` that usually means an
-    // archive manager rather than an installer. Handing it over is still right —
-    // the platform answers, this shell does not — but the command that does
-    // install it is worth naming, because nothing in a file manager will.
-    Ok(if cfg!(target_os = "linux") {
-        format!(
-            "已下载并校验 {}。已交给系统打开；若只是打开了归档管理器，用 sudo apt install {} 安装。",
-            installer.name,
-            path.display()
-        )
-    } else {
-        format!("已下载并校验 {}，安装程序已打开。", installer.name)
-    })
+    let handover = crate::link::open_installer(&path);
+    if let Err(error) = &handover {
+        shell_log!("[dsh-harness] self update: could not hand the installer over ({error})");
+    }
+    Ok(handover_message(
+        &installer.name,
+        &path,
+        handover,
+        std::env::consts::OS,
+    ))
+}
+
+/// What to tell the user after handing an installer over, given how it went.
+///
+/// Linux is the platform where this has to be said out loud: `xdg-open` needs a
+/// handler for `.deb`, a bare WSL image ships none, and a `.deb` needs root
+/// whoever opens it — so the command is named either way. The two Linux arms
+/// differ in what they claim: a hand-over that worked *may* have reached an
+/// archive manager instead of an installer, while one that failed opened nothing
+/// at all, and reporting the second as "installer opened" is what made an update
+/// look done on a machine where nothing had happened.
+fn handover_message(
+    installer: &str,
+    path: &Path,
+    handover: Result<(), String>,
+    os: &str,
+) -> String {
+    let manual = format!("sudo apt install {}", path.display());
+    match (handover, os == "linux") {
+        (Ok(()), true) => format!(
+            "已下载并校验 {installer}。已交给系统打开；若只是打开了归档管理器，用 {manual} 安装。"
+        ),
+        (Ok(()), false) => format!("已下载并校验 {installer}，安装程序已打开。"),
+        (Err(error), true) => format!(
+            "已下载并校验 {installer}，但系统里没有能打开它的程序（{error}）。请执行：{manual}"
+        ),
+        (Err(error), false) => {
+            format!("已下载并校验 {installer}，但没能打开它（{error}）。请手动运行这个安装包。")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handover_message;
+    use std::path::Path;
+
+    #[test]
+    fn a_failed_handover_says_so_and_names_the_command() {
+        // The WSL case this exists for: `xdg-open` exits 3 and opens nothing.
+        let message = handover_message(
+            "app_0.0.10_amd64.deb",
+            Path::new("/tmp/dsh-xswt-tauriapp/updates/app_0.0.10_amd64.deb"),
+            Err("xdg-open 退出码 Some(3)".to_string()),
+            "linux",
+        );
+        assert!(message.contains("没有能打开它的程序"), "{message}");
+        assert!(
+            message.contains("sudo apt install /tmp/dsh-xswt-tauriapp/updates/"),
+            "{message}"
+        );
+        assert!(!message.contains("安装程序已打开"), "{message}");
+    }
+
+    #[test]
+    fn a_linux_handover_still_names_the_command() {
+        let message = handover_message("app.deb", Path::new("/tmp/app.deb"), Ok(()), "linux");
+        assert!(
+            message.contains("sudo apt install /tmp/app.deb"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn elsewhere_the_opener_is_the_installer() {
+        let message = handover_message("app.exe", Path::new("C:/x/app.exe"), Ok(()), "windows");
+        assert!(message.contains("安装程序已打开"), "{message}");
+        assert!(!message.contains("apt"), "{message}");
+    }
 }

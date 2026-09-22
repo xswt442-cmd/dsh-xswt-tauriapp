@@ -9,6 +9,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - Updating dsh on Windows no longer fails on a `\\?\` path: the npm derived from the launcher loses that prefix before it reaches the command line, which is the only form `cmd.exe` can run.
 - A failed update no longer explains itself in replacement characters: a child's output is read as UTF-8, and as the machine's OEM code page when that fails, where Windows' own messages are written.
+- The shell's own update no longer reports a success it did not have on Linux and WSL: the hand-over waits for `xdg-open` and, when nothing can handle the `.deb` (exit 3), says so and names `sudo apt install <path>`. Windows still does not wait, because `explorer`'s exit code says nothing about the file.
 
 ## 0.0.10 - 2026-09-21
 
