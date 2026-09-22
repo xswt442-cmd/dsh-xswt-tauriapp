@@ -3,13 +3,13 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
-## Unreleased
+## 0.0.11 - 2026-09-22
 
 ### Fixed
 
 - Updating dsh on Windows no longer fails on a `\\?\` path: the npm derived from the launcher loses that prefix before it reaches the command line, which is the only form `cmd.exe` can run.
-- A failed update no longer explains itself in replacement characters: a child's output is read as UTF-8, and as the machine's OEM code page when that fails, where Windows' own messages are written.
-- The shell's own update no longer reports a success it did not have on Linux and WSL: the hand-over waits for `xdg-open` and, when nothing can handle the `.deb` (exit 3), says so and names `sudo apt install <path>`. Windows still does not wait, because `explorer`'s exit code says nothing about the file.
+- A failed update no longer explains itself in replacement characters: a child's output is decoded as UTF-8 first, and as the machine's OEM code page when that fails — which is where Windows writes its own messages.
+- On Linux and WSL the shell's own update no longer claims a success it did not have: the hand-over waits for `xdg-open` and, when nothing opens the `.deb` (exit 3), says so and names `sudo apt install <path>`.
 
 ## 0.0.10 - 2026-09-21
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-xswt-tauriapp",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "private": true,
   "description": "DeepSeek Harness \u7684\u8f7b\u91cf Tauri \u684c\u9762\u5916\u58f3\uff1a\u590d\u7528\u6216\u542f\u52a8\u672c\u673a dsh web \u670d\u52a1\u5e76\u5d4c\u5165\u539f\u751f\u7a97\u53e3\uff0c\u542f\u52a8\u65f6\u68c0\u67e5 dsh \u66f4\u65b0\u3002A lightweight Tauri desktop shell for DeepSeek Harness: reuses or starts a local dsh web server, embeds it in a native window, and offers dsh updates on launch.",
   "license": "MIT",

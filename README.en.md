@@ -50,7 +50,7 @@ On the **first** dsh start after installing it, the stub reads this repository's
 Each release carries a Windows installer, a macOS dmg, a deb, an rpm and an AppImage, together with `SHA256SUMS`. The deb depends on `libwebkit2gtk-4.1-0`, `libgtk-3-0` and `libayatana-appindicator3-1` (the tray; on Ubuntu 24.04 and later GTK3 ships as `libgtk-3-0t64`, which `Provides: libgtk-3-0`, so it installs either way):
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.10_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.11_amd64.deb"
 ```
 
 ### From source
