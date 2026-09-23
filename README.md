@@ -50,7 +50,7 @@ dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/re
 每个 release 附带 Windows 安装包、macOS dmg、deb、rpm 与 AppImage，以及 `SHA256SUMS`。deb 依赖 `libwebkit2gtk-4.1-0`、`libgtk-3-0` 与 `libayatana-appindicator3-1`（托盘用；Ubuntu 24.04 起 GTK3 的包名是 `libgtk-3-0t64`，它 `Provides: libgtk-3-0`，因此照装不误）：
 
 ```sh
-sudo apt install "./dsh-xswt-tauriapp_0.0.11_amd64.deb"
+sudo apt install "./dsh-xswt-tauriapp_0.0.12_amd64.deb"
 ```
 
 ### 从源码构建

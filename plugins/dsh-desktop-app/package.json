@@ -1,6 +1,6 @@
 {
   "name": "dsh-xswt-tauriapp-plugin",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "Marketplace stub for the dsh-xswt-tauriapp desktop shell: on the first dsh start after install it downloads this platform's installer from the shell's GitHub release, verifies it against SHA256SUMS, and hands it to the operating system. 桌面外壳 dsh-xswt-tauriapp 的市场入口：安装后首次启动 dsh 时下载本平台安装包，用发布页的 SHA256SUMS 校验，再交给系统安装器。",
   "license": "MIT",
   "type": "module",
