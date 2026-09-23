@@ -172,7 +172,24 @@ jobs:
           # and hangs until the job is cancelled. A file handle is held just as
           # harmlessly and lets the parent exit.
           out="$RUNNER_TEMP/launch.out"
-          cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch > "$out" 2>&1
+          # A launch that never reaches the parse below used to fail this step
+          # with an empty log: its progress and its reason go to the redirect,
+          # and only the *later* checks printed that file. So every failure path
+          # now prints the redirect, and the server's own stderr with it — a dsh
+          # that refuses to boot says so there and nowhere else.
+          fail() {
+            echo "::error::$1"
+            echo "──── launch ────"
+            cat "$out" || true
+            for log in "${DSH_HOME:-$HOME/.dsh}"/launcher/logs/server-*.err.log; do
+              [ -f "$log" ] || continue
+              echo "──── ${log##*/} ────"
+              tail -n 40 "$log" || true
+            done
+            exit 1
+          }
+          cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch > "$out" 2>&1 \
+            || fail "the launch exited non-zero"
           url="$(sed -n 's/^url=//p' "$out" | tail -n1)"
           cookie="$(sed -n 's/^cookie=//p' "$out" | tail -n1)"
           echo "resolved: $url"
@@ -180,19 +197,15 @@ jobs:
 
           case "$url" in
             http://127.0.0.1:*'/') ;;
-            *) echo "::error::the session URL is not a clean loopback address: $url"; cat "$out"; exit 1 ;;
+            *) fail "the session URL is not a clean loopback address: $url" ;;
           esac
           # The launch token must have been consumed in Rust. If it is still in
           # the URL then the handshake was handed to the page instead, which is
           # the thing this design exists to prevent.
           case "$url" in
-            *'?token='*) echo "::error::the launch token leaked into the URL: $url"; exit 1 ;;
+            *'?token='*) fail "the launch token leaked into the URL: $url" ;;
           esac
-          [ -n "$cookie" ] || {
-            echo "::error::no session cookie: the token handshake did not complete"
-            cat "$out"
-            exit 1
-          }
+          [ -n "$cookie" ] || fail "no session cookie: the token handshake did not complete"
 
           html="$RUNNER_TEMP/dsh-shell.html"
           status="$(curl -sS --noproxy '*' -H "Cookie: $cookie" -o "$html" -w '%{http_code}' "$url")"
@@ -201,7 +214,11 @@ jobs:
             cat "$html" || true
             exit 1
           }
-          grep -q 'DeepSeek Harness' "$html" || { echo '::error::the shell marker is missing'; exit 1; }
+          grep -q 'DeepSeek Harness' "$html" || {
+            echo '::error::the shell marker is missing'
+            head -c 400 "$html" || true
+            exit 1
+          }
 
           # The same address without the cookie must still be refused, which is
           # what makes the cookie the thing that was actually proved.
@@ -217,9 +234,14 @@ jobs:
         run: |
           set -euo pipefail
           launch() {
+            local file="$RUNNER_TEMP/launch-$1.out"
             cargo run --quiet --manifest-path crates/dsh-core/Cargo.toml --example launch \
-              > "$RUNNER_TEMP/launch-$1.out" 2>&1
-            sed -n 's/^url=//p' "$RUNNER_TEMP/launch-$1.out" | tail -n1
+              > "$file" 2>&1 || {
+                echo "::error::the $1 launch exited non-zero"
+                cat "$file" || true
+                return 1
+              }
+            sed -n 's/^url=//p' "$file" | tail -n1
           }
           first="$(launch first)"
           second="$(launch second)"
