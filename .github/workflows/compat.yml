@@ -127,14 +127,27 @@ jobs:
 
       - name: install dsh
         shell: bash
+        env:
+          # The compatibility floor is a statement about a *build*, and a bare
+          # specifier no longer installs one: `@0.1.5-rc.1`'s ranges resolve
+          # forward to its own line's newest pieces, and since 0.1.5-rc.3 was
+          # published (2026-09-22) that mixture does not boot at all. npm nests
+          # `@deepseek-ai/dsh-sandbox-local` under `dsh-base`, the rc.1 launcher
+          # cannot resolve it from there, and dsh exits with "plugin tree failed
+          # to load" before it ever listens — which is what this leg had been
+          # reporting since the 23rd. `--before` installs the tree the version
+          # had when it was current.
+          DSH_BEFORE: ${{ matrix.dsh-spec == '@0.1.5-rc.1' && '2026-09-11T00:00:00Z' || '' }}
         run: |
           # A version can appear in the registry's metadata before its tarball
           # has propagated to every CDN edge, and that surfaces as a 404 on a
           # transitive tarball rather than on the package itself. It is
           # transient and has nothing to do with this repository, so the install
           # is retried instead of failing the matrix outright.
+          before=()
+          [ -n "$DSH_BEFORE" ] && before=(--before="$DSH_BEFORE")
           for attempt in 1 2 3 4; do
-            if npm i -g "@deepseek-ai/dsh${{ matrix.dsh-spec }}"; then
+            if npm i -g "@deepseek-ai/dsh${{ matrix.dsh-spec }}" "${before[@]}"; then
               exit 0
             fi
             echo "::warning::install attempt ${attempt} failed; retrying in 20s"
@@ -145,6 +158,8 @@ jobs:
 
       - name: report the host version under test
         shell: bash
+        env:
+          DSH_BEFORE: ${{ matrix.dsh-spec == '@0.1.5-rc.1' && '2026-09-11T00:00:00Z' || '' }}
         run: |
           # `npm root -g` is a Windows path on Windows. Handing it to node
           # through the environment and joining it there avoids interpolating
@@ -155,7 +170,7 @@ jobs:
             const manifest = path.join(process.env.DSH_NPM_ROOT, '@deepseek-ai', 'dsh', 'package.json');
             process.stdout.write(require(manifest).version);
           ")"
-          echo "dsh host under test: $version (${{ matrix.dsh-spec }})"
+          echo "dsh host under test: $version (${{ matrix.dsh-spec }}${DSH_BEFORE:+ resolved as of $DSH_BEFORE})"
 
       # This is the shell's own discovery path: port band, token read from the
       # server log, two-step handshake, then a spawned server that must outlive
