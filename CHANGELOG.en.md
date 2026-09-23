@@ -3,6 +3,12 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Fixed
+
+- dsh 0.1.7-rc.1 redirects the token exchange to a relative `./`, which the shell joined straight onto the origin (`http://127.0.0.1:3600./`) and failed the handshake on — a server that was listening reported as "not ready"; the redirect is now resolved against the request URL.
+
 ## 0.0.11 - 2026-09-22
 
 ### Fixed
