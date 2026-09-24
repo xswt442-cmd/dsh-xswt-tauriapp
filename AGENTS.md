@@ -71,12 +71,17 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   leaves coordinates off-screen, and a window nobody can see looks exactly like a shell that
   never started. The write is throttled while the window is dragged, and taken once more,
   unthrottled, on the way out.
-- One shell at a time: the single-instance plugin raises the running window, and is registered
-  only where `single_instance_supported()` says its mechanism exists. On Linux that mechanism
-  is D-Bus and the plugin's setup *unwraps* the session connection, so a desktop with no
-  session bus would lose the shell entirely — `panic = "abort"` in release. `DSH_SHELL_ALLOW_MULTIPLE=1`
-  opts out, for two shells on two ports. It is the one plugin that earns its place beside
-  `link`'s hand-rolled opener.
+- One shell at a time, over a local socket (`single`): the first process binds a name and
+  listens, a later launch connects and the first brings itself forward, and a name that cannot
+  be claimed costs the feature rather than the launch. Deliberately **not**
+  `tauri-plugin-single-instance`: its Linux half is `zbus` — 33 crates for one message, and a
+  setup that *unwraps* the session connection, so a desktop with no session bus panics, and
+  `panic = "abort"` in release means the shell is simply gone. The socket is a named pipe on
+  Windows and a Unix-domain socket elsewhere, one code path that is testable here. A **debug**
+  build claims `<identifier>-dev`, so the shell under test never fights the installed copy for
+  the name; `DSH_SHELL_ALLOW_MULTIPLE=1` opts out entirely, for two shells on two ports. macOS
+  also handles `RunEvent::Reopen` — the Dock icon asking for the window, which is a different
+  gesture from a second launch.
 - Never offer an update from a channel less stable than the installed one, and scope
   "don't remind me" to one version.
 - Two update paths, two stores: dsh from npm (`updates`), this application from its own

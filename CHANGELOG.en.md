@@ -10,6 +10,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The dsh window's size and position are remembered and restored, and a remembered position is used only while a display that is here now can still show it.
 - A second launch raises the shell that is already running instead of opening a second window; `DSH_SHELL_ALLOW_MULTIPLE=1` runs several at once.
 - The port dialog lists the ports this machine has run dsh on (newest first, at most six) with what choosing each would do; one click fills the field.
+- Reactivating the app on macOS — the Dock icon, or `open` again — brings the dsh window forward, where the gesture previously did nothing.
 
 ### Fixed
 

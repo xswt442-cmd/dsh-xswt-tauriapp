@@ -134,7 +134,7 @@ On Linux there is one further condition: `global-hotkey` grabs keys through X11,
 
 Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins.
 
-The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE=1` opts out, for two shells on two ports side by side).
+The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE=1` opts out, for two shells on two ports side by side), and on macOS reactivating the app from the Dock does the same.
 
 ### Updates to this application itself
 

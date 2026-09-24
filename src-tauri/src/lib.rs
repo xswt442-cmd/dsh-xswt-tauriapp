@@ -26,6 +26,7 @@ mod commands;
 mod guest;
 mod link;
 mod menu;
+mod single;
 mod state;
 mod update;
 
@@ -247,59 +248,35 @@ fn multiple_instances_allowed() -> bool {
     std::env::var_os("DSH_SHELL_ALLOW_MULTIPLE").is_some()
 }
 
-/// Whether an already-running shell can be reached and raised on this desktop.
-///
-/// The plugin is registered only where it can work. Its Linux half is D-Bus, and
-/// its setup *unwraps* the session connection: on a desktop with no session bus
-/// it panics, and in a release build `panic = "abort"` means the shell is simply
-/// gone. A convenience must never be able to do that, so the bus is checked for
-/// first and its absence costs the feature rather than the launch. Everywhere
-/// else the mechanism is the platform's own — a named mutex on Windows,
-/// LaunchServices on macOS — and it is always there.
-#[cfg(target_os = "linux")]
-fn single_instance_supported() -> bool {
-    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
-        return true;
-    }
-    // The other place a session bus is looked for, and the one a desktop with
-    // `dbus-launch` but no exported variable uses.
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .is_some_and(|dir| dir.join("bus").exists())
-}
-
-#[cfg(not(target_os = "linux"))]
-fn single_instance_supported() -> bool {
-    true
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Before anything initialises GTK.
     prefer_x11();
 
-    let mut builder = tauri::Builder::default();
-    if multiple_instances_allowed() {
-        shell_log!(
-            "[dsh-harness] {} is set: a second shell is allowed",
-            "DSH_SHELL_ALLOW_MULTIPLE"
-        );
-    } else if single_instance_supported() {
-        // Registered before anything else, which is what the plugin's own docs ask
-        // for: the second launch has to be turned back before it builds a window
-        // or starts looking for a server. The raising happens inside the *first*
-        // process, which is the half a lock file could not do — see `Cargo.toml`.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            shell_log!("[dsh-harness] another instance started; bringing this one forward");
-            guest::show(app);
-        }));
-    } else {
-        shell_log!("[dsh-harness] no session bus: a second launch cannot be turned back");
-    }
-
-    builder
+    tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // One shell at a time, unless asked otherwise, and claimed before
+            // anything is built: a second launch has nothing to add, so it should
+            // not flash a window or start looking for a server on its way out.
+            // See `single` for why this is a socket of our own rather than the
+            // Tauri plugin.
+            if multiple_instances_allowed() {
+                shell_log!(
+                    "[dsh-harness] {} is set: a second shell is allowed",
+                    "DSH_SHELL_ALLOW_MULTIPLE"
+                );
+            } else {
+                let identifier = app.config().identifier.clone();
+                if single::hand_over(&identifier) {
+                    shell_log!("[dsh-harness] another shell is up; asking it to come forward");
+                    app.cleanup_before_exit();
+                    std::process::exit(0);
+                }
+                single::listen(&handle, &identifier);
+            }
+
             let shell = new_shell(&handle);
             app.manage(shell.clone());
             // Acquiring global shortcuts can fail on a desktop that will not
@@ -369,6 +346,17 @@ pub fn run() {
             }
             _ => {}
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the DSH Tauri harness");
+        .build(tauri::generate_context!())
+        .expect("error while building the DSH Tauri harness")
+        .run(|_app, _event| {
+            // macOS reaches an application that is already running by *activating*
+            // it — the Dock icon, `open -a`, a second double-click — and this is
+            // that event. By then the window is usually behind everything else, so
+            // bringing it forward is the whole answer. Nothing else is handled
+            // here: closing a window already quits, in `on_window_event`.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                guest::show(_app);
+            }
+        });
 }

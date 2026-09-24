@@ -28,13 +28,19 @@ tauri = { version = "2", features = ["tray-icon", "devtools", "image-png", "imag
 # refuses, which a Wayland session does.
 global-hotkey = "0.8"
 # A second launch has to find the first one and raise *its* window, rather than
-# open a second window onto the same dsh. That needs a channel between the two
-# processes, and this is the one place it exists — a lock file would let the second
-# launch notice the first and then have no way to say anything to it. It brings no
-# capability and no permission with it, since it has no JS API. The opposite
-# judgement from `tauri-plugin-opener`, which `link` replaces with a `Command`:
-# that one really did buy only a few lines of work.
-tauri-plugin-single-instance = "2"
+# open a second window onto the same dsh. Finding it is half the job and a lock
+# file would do that half; the other half is saying something to it, which needs a
+# channel. A local socket is that channel — a named pipe on Windows, a Unix-domain
+# socket elsewhere — and this is the crate for it.
+#
+# Used directly rather than through `tauri-plugin-single-instance`: that plugin's
+# Linux half is `zbus`, which is 33 crates of async machinery for one message, and
+# its setup unwraps the session connection, so a desktop with no session bus
+# panics — in a release build (`panic = "abort"`) the shell would simply be gone.
+# A convenience must never be able to do that. This crate needs no feature at all
+# by default, and the failure path is ours to write: not claiming the name costs
+# the feature, never the launch.
+interprocess = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dsh-xswt-tauriapp-core = { path = "../crates/dsh-core" }
