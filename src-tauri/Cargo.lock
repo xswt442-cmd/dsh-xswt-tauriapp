@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-xswt-tauriapp"
-version = "0.0.12"
+version = "0.0.13"
 dependencies = [
  "dsh-xswt-tauriapp-core",
  "global-hotkey",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "dsh-xswt-tauriapp-core"
-version = "0.0.12"
+version = "0.0.13"
 dependencies = [
  "regex",
  "semver",
