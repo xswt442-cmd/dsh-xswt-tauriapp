@@ -25,8 +25,8 @@
 
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 /** Stable Cordis plugin name. */
@@ -43,6 +43,14 @@ const CHECKSUMS = 'SHA256SUMS'
 
 /** The installed application's name, in its bundle and its executable. */
 const APP = 'dsh-xswt-tauriapp'
+
+/**
+ * Every suffix an installer this application publishes ends in, across every
+ * platform it builds for. Pruning recognises its own downloads by these, so the
+ * list has to cover everything `installerSuffix` can return — a test holds the
+ * two together rather than a comment.
+ */
+const INSTALLER_SUFFIXES = ['_x64-setup.exe', '_x64.dmg', '_aarch64.dmg', '_amd64.deb']
 
 /**
  * Log prefix. The launcher writes a spawned `dsh web` stdout to
@@ -119,6 +127,47 @@ function dshHome(env = process.env) {
  */
 function statePath(env = process.env) {
   return join(dshHome(env), APP, 'plugin.json')
+}
+
+/**
+ * Where a verified installer is written: under `$DSH_HOME`, beside the state
+ * file, and for the same reason. Both the recorded state and the log line name
+ * this path as the `sudo apt install <path>` a person can still run tomorrow,
+ * and a temporary directory is emptied by a reboot — which made a download that
+ * verified correctly look like a file that had never been written.
+ * @param installerName - the installer's file name.
+ * @param env - the environment to read.
+ * @returns the absolute path to write it to.
+ */
+function installerPath(installerName, env = process.env) {
+  return join(dshHome(env), APP, 'updates', installerName)
+}
+
+/**
+ * Remove this application's superseded installers from `dir`, keeping `keep`.
+ *
+ * The directory outlives the session now, so without this it would collect one
+ * installer per release. Only files named after this application *and* ending in
+ * a platform installer suffix are removed: anything else in there was not put
+ * there by a download. A file that cannot be removed is not a reason to fail an
+ * install that has already verified.
+ * @param dir - the directory the installer was written to.
+ * @param keep - the file name to keep.
+ * @returns the names removed.
+ */
+function pruneInstallers(dir, keep) {
+  const removed = []
+  for (const entry of readdirSync(dir)) {
+    const ours = entry.startsWith(APP) && INSTALLER_SUFFIXES.some((suffix) => entry.endsWith(suffix))
+    if (entry === keep || !ours) continue
+    try {
+      rmSync(join(dir, entry))
+      removed.push(entry)
+    } catch {
+      // Left behind rather than made into a failure: the download is verified.
+    }
+  }
+  return removed
 }
 
 /** @returns the recorded state, or `{}` when there is none to read. */
@@ -327,8 +376,9 @@ function logWslHint(log, platform, env) {
  * platform's installer, verify it, hand it over, remember that it happened.
  *
  * Every exit is a log line, and the only writes are the installer (after its
- * digest matched) and the state file under `$DSH_HOME`. Exported through
- * `internals` so the tests can drive it against a stand-in release server.
+ * digest matched) and the state file — both under `$DSH_HOME`, where a reboot
+ * cannot take them. Exported through `internals` so the tests can drive it
+ * against a stand-in release server.
  *
  * The platform is a parameter like `env` is, not a global: which asset a machine
  * installs from and whether it has a desktop are both answers about a *host*, and
@@ -376,9 +426,14 @@ async function run(config, env = process.env, log = console.log, platform = proc
   const { actual, ok } = verifyDigest(bytes, expected)
   if (!ok) throw new Error(`${installer.name} failed verification: SHA256SUMS says ${expected}, the download is ${actual}`)
 
-  const path = join(tmpdir(), APP, 'updates', installer.name)
+  const path = installerPath(installer.name, env)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, bytes)
+  // The installers of the versions this one supersedes go, rather than
+  // accumulating one per release for as long as the machine lives.
+  for (const stale of pruneInstallers(dirname(path), installer.name)) {
+    log(`${PREFIX} removed the superseded installer ${stale}`)
+  }
   writeState({ version: release.version, installer: path, at: new Date().toISOString() }, env)
   log(`${PREFIX} verified ${installer.name} against ${CHECKSUMS}: ${path}`)
 
@@ -419,6 +474,7 @@ export const internals = {
   CHECKSUMS,
   DEFAULT_CONFIG,
   DEFAULT_RELEASES_API,
+  INSTALLER_SUFFIXES,
   MODES,
   RELEASES_PAGE,
   STATE_FILE: 'plugin.json',
@@ -427,11 +483,13 @@ export const internals = {
   fetchRelease,
   hasDesktop,
   installedCandidates,
+  installerPath,
   installerSuffix,
   isInstalled,
   isWsl,
   manualCommand,
   parseSha256Sums,
+  pruneInstallers,
   readState,
   resolveConfig,
   run,

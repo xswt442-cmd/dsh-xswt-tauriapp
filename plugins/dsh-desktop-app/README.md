@@ -11,7 +11,7 @@ manifest, and on the **first `dsh` start after installation** it
 1. checks whether the shell is already installed (and says nothing if it is),
 2. reads the shell's latest GitHub release and picks this platform's installer from its asset list,
 3. downloads `SHA256SUMS`, downloads the installer, and verifies the digest **before writing anything**
-   to disk (`$TMPDIR/dsh-xswt-tauriapp/updates/`),
+   to disk (`$DSH_HOME/dsh-xswt-tauriapp/updates/`, where it also removes the installers it supersedes),
 4. hands the verified file to the operating system — `start` on Windows, `open` on macOS, `xdg-open`
    on Linux — and records that it did so in `$DSH_HOME/dsh-xswt-tauriapp/plugin.json`.
 

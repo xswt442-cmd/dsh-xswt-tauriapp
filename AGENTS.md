@@ -76,8 +76,10 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   window, nothing dsh can observe. It verifies against `SHA256SUMS` **before writing** and
   hands the file to the platform opener — never installing, never silently, because
   SmartScreen, Gatekeeper and dependency/root questions are the platform's to ask. Its
-  state is one file under `$DSH_HOME`; the asset it is fetched through must stay
-  version-free (`releases/latest/download/<name>` is literal).
+  state is one file under `$DSH_HOME`, and the installer it downloads is kept beside that
+  state rather than in a temporary directory — the path it records, and the one it prints as
+  the `sudo apt install` command, has to still be there tomorrow. The asset it is fetched
+  through must stay version-free (`releases/latest/download/<name>` is literal).
 - Keep the five version fields equal and each README/CHANGELOG pair in sync, with exactly
   one `## Unreleased` section: `release-notes.mjs` takes the first match. A section is the
   release body verbatim, so entries stay one line and technical — the debugging story goes

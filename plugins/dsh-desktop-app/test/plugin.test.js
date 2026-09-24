@@ -70,7 +70,7 @@ async function standIn(sums = 'good', platform = process.platform, arch = proces
   return {
     api: `${base}/releases/latest`,
     installerName,
-    installerPath: join(tmpdir(), APP, 'updates', installerName),
+    installerPathFor: (env) => internals.installerPath(installerName, env),
     bytes,
     requests,
     close: () =>
@@ -183,6 +183,49 @@ describe('configuration', () => {
     assert.equal(internals.statePath({ DSH_HOME: '/tmp/home' }), join('/tmp/home', APP, 'plugin.json'))
     assert.equal(internals.readState({ DSH_HOME: join(root, 'empty') }).installer, undefined)
   })
+
+  it('keeps the installer it downloads under $DSH_HOME, not in a temporary directory', () => {
+    // Both the recorded state and the printed `sudo apt install <path>` name
+    // this file, and the natural thing to do with that line is run it later — by
+    // which time a temporary directory has been emptied.
+    assert.equal(
+      internals.installerPath(`${APP}_0.0.99_amd64.deb`, { DSH_HOME: '/tmp/home' }),
+      join('/tmp/home', APP, 'updates', `${APP}_0.0.99_amd64.deb`),
+    )
+  })
+
+  it('removes the installer a newer download supersedes, and nothing else', () => {
+    const env = { DSH_HOME: home('prune') }
+    const older = internals.installerPath(`${APP}_0.0.98_amd64.deb`, env)
+    const keep = internals.installerPath(`${APP}_0.0.99_amd64.deb`, env)
+    const foreign = join(dirname(older), 'notes.txt')
+    mkdirSync(dirname(older), { recursive: true })
+    for (const path of [older, keep, foreign]) writeFileSync(path, 'x')
+
+    const removed = internals.pruneInstallers(dirname(older), `${APP}_0.0.99_amd64.deb`)
+
+    assert.deepEqual(removed, [`${APP}_0.0.98_amd64.deb`])
+    assert.equal(existsSync(older), false)
+    assert.equal(existsSync(keep), true)
+    assert.equal(existsSync(foreign), true, 'a file that is not one of ours is not touched')
+  })
+
+  it('prunes exactly the suffixes it can download', () => {
+    // The two lists are the same knowledge in two places, so a new bundle format
+    // must not become an installer that is never cleaned up.
+    for (const [platform, arch] of [
+      ['win32', 'x64'],
+      ['darwin', 'arm64'],
+      ['darwin', 'x64'],
+      ['linux', 'x64'],
+    ]) {
+      const suffix = internals.installerSuffix(platform, arch)
+      assert.ok(
+        internals.INSTALLER_SUFFIXES.includes(suffix),
+        `${platform}/${arch} publishes ${suffix}, which pruning does not know`,
+      )
+    }
+  })
 })
 
 describe('a first start after installation', () => {
@@ -203,10 +246,10 @@ describe('a first start after installation', () => {
         `/assets/${internals.CHECKSUMS}`,
         `/assets/${release.installerName}`,
       ])
-      assert.deepEqual(readFileSync(release.installerPath), release.bytes)
+      assert.deepEqual(readFileSync(release.installerPathFor(env)), release.bytes)
       const state = JSON.parse(readFileSync(internals.statePath(env), 'utf8'))
       assert.equal(state.version, '0.0.99')
-      assert.equal(state.installer, release.installerPath)
+      assert.equal(state.installer, release.installerPathFor(env))
       assert.ok(lines.some((line) => line.includes(`verified ${release.installerName}`)))
 
       // The second start has nothing to do: it must not fetch the release again,
@@ -215,9 +258,9 @@ describe('a first start after installation', () => {
       const before = release.requests.length
       await internals.run({ mode: 'auto', open: true }, env, (line) => second.push(line), 'linux', 'x64')
       assert.equal(release.requests.length, before)
-      assert.ok(second.some((line) => line.includes(release.installerPath)))
+      assert.ok(second.some((line) => line.includes(release.installerPathFor(env))))
     } finally {
-      rmSync(release.installerPath, { force: true })
+      rmSync(release.installerPathFor(env), { force: true })
       await release.close()
     }
   })
@@ -235,7 +278,7 @@ describe('a first start after installation', () => {
         internals.run({ mode: 'auto', open: true }, env, () => {}, 'linux', 'x64'),
         /failed verification/,
       )
-      assert.equal(existsSync(release.installerPath), false)
+      assert.equal(existsSync(release.installerPathFor(env)), false)
       assert.equal(existsSync(internals.statePath(env)), false)
     } finally {
       await release.close()
@@ -273,7 +316,7 @@ describe('a first start after installation', () => {
         'a WSL host is told why the automatic handoff cannot finish',
       )
     } finally {
-      rmSync(release.installerPath, { force: true })
+      rmSync(release.installerPathFor(env), { force: true })
       await release.close()
     }
   })
@@ -292,7 +335,7 @@ describe('a first start after installation', () => {
       assert.ok(lines.some((line) => /apt install/.test(line)))
       assert.ok(!lines.some((line) => /WSL:/.test(line)))
     } finally {
-      rmSync(release.installerPath, { force: true })
+      rmSync(release.installerPathFor(env), { force: true })
       await release.close()
     }
   })
