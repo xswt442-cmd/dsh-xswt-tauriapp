@@ -8,6 +8,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 ### Fixed
 
 - The self-update installer is kept in the cache directory, so the `sudo apt install <path>` in the message still resolves after a reboot; the directory keeps only the newest installer.
+- Windows hands the installer over with `ShellExecuteW` and reads the answer: `explorer` only forwards the request and its exit code says nothing about the file, so a machine that could not open it reported "installer opened" too.
 
 ## 0.0.12 - 2026-09-24
 

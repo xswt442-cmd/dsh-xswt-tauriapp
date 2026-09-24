@@ -69,7 +69,8 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   under the application's **cache** directory rather than the temporary one, because the
   Linux dialog prints that path as the `sudo apt install` argument and it has to outlive the
   session that downloaded it; each download removes the installers it supersedes, its own
-  files only.
+  files only. On Windows the hand-over is `ShellExecuteW`, not `explorer`: only the API
+  answers whether the file was opened at all.
 - `plugins/dsh-desktop-app/` is the marketplace stub and deliberately the opposite of
   everything above: Node built-ins only, no `@deepseek-ai/*`, no tool, no client row, no
   window, nothing dsh can observe. It verifies against `SHA256SUMS` **before writing** and
