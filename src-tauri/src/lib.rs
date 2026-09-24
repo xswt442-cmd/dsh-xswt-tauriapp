@@ -31,7 +31,7 @@ mod update;
 
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{paths, ports, updates, zoom};
+use dsh_xswt_tauriapp_core::{paths, ports, self_update, updates, zoom};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Log a harness event.
@@ -133,6 +133,21 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         },
     );
 
+    // Where a verified installer is written. The *cache* directory rather than
+    // the temporary one, because the dialog shows this path to the user as the
+    // argument to `sudo apt install`, and a temporary directory is emptied by a
+    // reboot — which is how a download that verified correctly came to look like
+    // a file that had never been written.
+    let download_dir = app
+        .path()
+        .app_cache_dir()
+        .map(|dir| self_update::downloads_dir(&dir))
+        .unwrap_or_else(|_| self_update::fallback_downloads_dir());
+    shell_log!(
+        "[dsh-harness] installer downloads -> {}",
+        download_dir.display()
+    );
+
     // A second store, not a second entry in the first one: "don't remind me
     // about dsh 0.1.5-rc.2" must not silence an update to this application.
     let self_dismiss_path = app
@@ -170,6 +185,7 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         self_dismiss,
         zoom: zoom_factor,
         zoom_memory,
+        download_dir,
         ..Default::default()
     }))
 }

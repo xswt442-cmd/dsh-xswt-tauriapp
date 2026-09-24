@@ -29,6 +29,17 @@ const USER_AGENT: &str = "dsh-xswt-tauriapp";
 const API_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an installer download may take.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
+/// The directory name, under the application's cache directory, that a verified
+/// installer is written to.
+pub const DOWNLOADS_DIR: &str = "updates";
+/// Every asset this application publishes is named after it. That is what makes a
+/// directory of downloads safe to prune: nothing else is ever removed from it.
+const ASSET_PREFIX: &str = "dsh-xswt-tauriapp";
+/// The suffixes an installer this application publishes ends in, across every
+/// platform it builds for. Pruning recognises its own downloads by these, so the
+/// list must cover everything [`installer_suffixes`] can return — a test holds
+/// the two together rather than a comment.
+const INSTALLER_SUFFIXES: [&str; 4] = ["_x64-setup.exe", "_x64.dmg", "_aarch64.dmg", "_amd64.deb"];
 
 /// One file attached to a release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -223,6 +234,62 @@ pub fn fetch_latest() -> Result<Release, String> {
 /// Check, then decide, in one step.
 pub fn check(current: &str) -> Result<Option<Available>, String> {
     Ok(available(current, &fetch_latest()?))
+}
+
+/// Where a verified installer is written, under the application's cache
+/// directory.
+///
+/// Under the *cache* directory rather than the temporary one, because the path
+/// has to outlive the session that produced it: on Linux the dialog hands the
+/// user a `sudo apt install <path>` line, and the natural thing to do with it is
+/// close the window and type it later — after which a temporary directory has
+/// been emptied and the command names a file that is not there. That is how a
+/// download that verified correctly came to look like a broken one.
+pub fn downloads_dir(cache_base: &Path) -> PathBuf {
+    cache_base.join(DOWNLOADS_DIR)
+}
+
+/// Where the installer goes when there is no application cache directory to use.
+///
+/// A shell without an application handle — which is the tests — still has to name
+/// a directory, and the temporary one is what a session-scoped download would
+/// have used. Named here rather than spelled out at both callers, so the fallback
+/// is one decision instead of two literals.
+pub fn fallback_downloads_dir() -> PathBuf {
+    downloads_dir(&std::env::temp_dir().join(ASSET_PREFIX))
+}
+
+/// Remove the installers in `dir` that are not `keep`, returning what went.
+///
+/// The directory outlives the session now, so without this it would collect one
+/// installer per version for as long as the machine lives — a few megabytes
+/// each, none of them ever opened again. Only this application's own installers
+/// are removed, recognised by both the name they share and the platform suffix
+/// they end in: a `notes.txt` someone left in the download directory, or the
+/// marketplace's plugin tarball beside it, is not a download of ours to delete.
+/// Nothing here is fatal either: a directory that cannot be read, or a file that
+/// cannot be removed, leaves the caller with the installer it just verified.
+pub fn prune_installers(dir: &Path, keep: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let ours = name.starts_with(ASSET_PREFIX)
+            && INSTALLER_SUFFIXES
+                .iter()
+                .any(|suffix| name.ends_with(suffix));
+        if name == keep || !ours {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed.push(path);
+        }
+    }
+    removed
 }
 
 /// Parse `sha256sum` output: one `<hex>  <name>` per line.
@@ -472,5 +539,63 @@ mod tests {
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
         assert_eq!(sha256_hex(b"abc").len(), 64);
+    }
+
+    #[test]
+    fn installers_are_kept_under_the_cache_directory() {
+        // Not the temporary directory: the Linux dialog's `sudo apt install`
+        // line has to still name a file after the machine has been restarted.
+        assert_eq!(
+            downloads_dir(Path::new("/home/x/.cache/com.xswt.dsh.tauri")),
+            Path::new("/home/x/.cache/com.xswt.dsh.tauri/updates")
+        );
+        // The fallback for a build with no application handle keeps the shape the
+        // temporary path always had.
+        let fallback = fallback_downloads_dir();
+        assert!(fallback.ends_with(Path::new(ASSET_PREFIX).join("updates")));
+    }
+
+    #[test]
+    fn pruning_keeps_the_new_installer_and_leaves_everything_else() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let older = dir.path().join("dsh-xswt-tauriapp_0.0.11_amd64.deb");
+        let kept = dir.path().join("dsh-xswt-tauriapp_0.0.12_amd64.deb");
+        let foreign = dir.path().join("notes.txt");
+        let tarball = dir.path().join("dsh-xswt-tauriapp-plugin.tgz");
+        for path in [&older, &kept, &foreign, &tarball] {
+            std::fs::write(path, b"x").expect("write");
+        }
+
+        let removed = prune_installers(dir.path(), "dsh-xswt-tauriapp_0.0.12_amd64.deb");
+
+        assert_eq!(removed, vec![older.clone()]);
+        assert!(!older.exists(), "the superseded installer is gone");
+        assert!(kept.exists(), "the one just verified stays");
+        assert!(foreign.exists(), "a file of somebody else's is not touched");
+        assert!(
+            tarball.exists(),
+            "the marketplace's plugin tarball is not an installer"
+        );
+    }
+
+    #[test]
+    fn pruning_recognises_every_suffix_a_release_can_carry() {
+        // The same knowledge in two places, so a new bundle format must not turn
+        // into an installer that is never cleaned up.
+        for os in ["windows", "macos", "linux"] {
+            for arch in ["x86_64", "aarch64"] {
+                for suffix in installer_suffixes(os, arch) {
+                    assert!(
+                        INSTALLER_SUFFIXES.contains(suffix),
+                        "{os}/{arch} publishes {suffix}, which pruning does not know"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pruning_a_directory_that_is_not_there_is_not_an_error() {
+        assert!(prune_installers(Path::new("/nonexistent/dsh-updates"), "x").is_empty());
     }
 }

@@ -3,6 +3,12 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Fixed
+
+- The self-update installer is kept in the cache directory, so the `sudo apt install <path>` in the message still resolves after a reboot; the directory keeps only the newest installer.
+
 ## 0.0.12 - 2026-09-24
 
 ### Fixed

@@ -99,22 +99,30 @@ pub fn refresh_self(app: &AppHandle, shell: &SharedShell) -> SelfUpdatePayload {
 /// Falls back to opening the release page when the release carries nothing this
 /// machine can install. Returns what it did, for the page to show.
 pub fn apply_self_update(shell: &SharedShell) -> Result<String, String> {
-    let pending = shell
-        .lock()
-        .map_err(|_| "状态锁不可用".to_string())?
-        .self_pending
-        .clone()
-        .ok_or_else(|| "当前没有待安装的外壳更新。".to_string())?;
+    let (pending, directory) = {
+        let guard = shell.lock().map_err(|_| "状态锁不可用".to_string())?;
+        let pending = guard
+            .self_pending
+            .clone()
+            .ok_or_else(|| "当前没有待安装的外壳更新。".to_string())?;
+        (pending, guard.download_dir.clone())
+    };
 
     let Some(installer) = pending.installer.as_ref() else {
         crate::link::open_external(&pending.page);
         return Ok("已打开发布页。".to_string());
     };
 
-    let directory = std::env::temp_dir()
-        .join("dsh-xswt-tauriapp")
-        .join("updates");
     let path = self_update::download_installer(installer, pending.checksums.as_ref(), &directory)?;
+    // The directory outlives the session now, so the installers of versions this
+    // one supersedes go rather than accumulating, one per release, for as long as
+    // the machine lives. The one just verified is the one that stays.
+    for stale in self_update::prune_installers(&directory, &installer.name) {
+        shell_log!(
+            "[dsh-harness] self update: removed the superseded {}",
+            stale.display()
+        );
+    }
     shell_log!(
         "[dsh-harness] self update: verified {} at {}",
         installer.name,
@@ -156,9 +164,10 @@ fn handover_message(
         (Err(error), true) => format!(
             "已下载并校验 {installer}，但系统里没有能打开它的程序（{error}）。请执行：{manual}"
         ),
-        (Err(error), false) => {
-            format!("已下载并校验 {installer}，但没能打开它（{error}）。请手动运行这个安装包。")
-        }
+        (Err(error), false) => format!(
+            "已下载并校验 {installer}，但没能打开它（{error}）。安装包在 {}，可以手动运行。",
+            path.display()
+        ),
     }
 }
 
@@ -197,6 +206,24 @@ mod tests {
     fn elsewhere_the_opener_is_the_installer() {
         let message = handover_message("app.exe", Path::new("C:/x/app.exe"), Ok(()), "windows");
         assert!(message.contains("安装程序已打开"), "{message}");
+        assert!(!message.contains("apt"), "{message}");
+    }
+
+    #[test]
+    fn a_handover_that_failed_elsewhere_names_the_kept_file() {
+        // Windows used to have no way to fail here: `explorer` was spawned and
+        // never looked at, so a machine that could not open the installer read as
+        // one that had. Now the shell API answers, and the answer is shown with
+        // the path that is still on disk — the cache directory, not `/tmp`.
+        let message = handover_message(
+            "dsh-xswt-tauriapp_0.0.12_x64-setup.exe",
+            Path::new("C:/Users/x/AppData/Local/com.xswt.dsh.tauri/cache/updates/setup.exe"),
+            Err("系统里没有能打开它的程序".to_string()),
+            "windows",
+        );
+        assert!(message.contains("没能打开它"), "{message}");
+        assert!(message.contains("cache/updates/setup.exe"), "{message}");
+        assert!(!message.contains("安装程序已打开"), "{message}");
         assert!(!message.contains("apt"), "{message}");
     }
 }

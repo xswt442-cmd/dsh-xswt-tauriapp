@@ -3,6 +3,12 @@
 Release Notes 由对应版本段生成；最新版本在前。
 英文版见 [CHANGELOG.en.md](CHANGELOG.en.md)。
 
+## Unreleased
+
+### 修复
+
+- 外壳自更新的安装包改存缓存目录，重启后提示里的 `sudo apt install <路径>` 仍然有效；同一目录只留最新一个安装包。
+
 ## 0.0.12 - 2026-09-24
 
 ### 修复

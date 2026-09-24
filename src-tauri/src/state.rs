@@ -176,6 +176,11 @@ pub struct Shell {
     pub zoom: f64,
     /// Where that factor is remembered between launches.
     pub zoom_memory: zoom::ZoomMemory,
+    /// Where a verified installer is written. Resolved from the application's
+    /// cache directory at startup rather than at download time, because the path
+    /// is shown to the user as the argument to `sudo apt install` and so has to
+    /// outlive the session that downloaded it.
+    pub download_dir: PathBuf,
 }
 
 impl Default for Shell {
@@ -191,6 +196,9 @@ impl Default for Shell {
             self_pending: None,
             zoom: 1.0,
             zoom_memory: zoom::ZoomMemory::default(),
+            // The fallback, for a shell built without an application handle: the
+            // real one is resolved in `new_shell` from the cache directory.
+            download_dir: self_update::fallback_downloads_dir(),
         }
     }
 }

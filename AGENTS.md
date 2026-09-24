@@ -65,7 +65,11 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   GitHub Releases (`self_update`). Never share a store or compare one product's versions
   with the other's. Self-update strips the tag's `v` and requires semver on both sides,
   because `updates::is_newer` falls back to string inequality. An installer reaches the OS
-  only after its published `SHA256SUMS` matches; no checksums, no install.
+  only after its published `SHA256SUMS` matches; no checksums, no install. It is written
+  under the application's **cache** directory rather than the temporary one, because the
+  Linux dialog prints that path as the `sudo apt install` argument and it has to outlive the
+  session that downloaded it; each download removes the installers it supersedes, its own
+  files only.
 - `plugins/dsh-desktop-app/` is the marketplace stub and deliberately the opposite of
   everything above: Node built-ins only, no `@deepseek-ai/*`, no tool, no client row, no
   window, nothing dsh can observe. It verifies against `SHA256SUMS` **before writing** and
