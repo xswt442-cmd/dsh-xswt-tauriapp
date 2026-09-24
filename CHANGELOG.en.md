@@ -7,6 +7,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- A failed start is no longer one sentence for three different things: a process that exited, a service listening without writing a token, and a handshake that did not complete are told apart — the last names the installed dsh version — and the tail of this run's stderr comes with it.
 - The self-update installer is kept in the cache directory, so the `sudo apt install <path>` in the message still resolves after a reboot; the directory keeps only the newest installer.
 - Windows hands the installer over with `ShellExecuteW` and reads the answer: `explorer` only forwards the request and its exit code says nothing about the file, so a machine that could not open it reported "installer opened" too.
 - The marketplace stub keeps its installer under `$DSH_HOME`, beside the state it records, and removes the installers a newer download supersedes: it used a temporary directory, so the path in that state was gone after a reboot while the stub stayed silent about it.

@@ -8,18 +8,35 @@
 
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Bytes of log tail scanned for the startup token.
 const LOG_TAIL_BYTES: u64 = 256 * 1024;
+/// How many lines of a failed start's stderr a failure message carries.
+const ERR_TAIL_LINES: usize = 5;
+/// How many characters of it: the message is rendered in a dialog rather than
+/// read in a terminal, and a stack trace can be enormous.
+const ERR_TAIL_CHARS: usize = 600;
+
+/// The stdout log for `port` — the file the startup token is read back from.
+pub fn out_path(dir: &Path, port: u16) -> PathBuf {
+    dir.join(format!("server-{port}.out.log"))
+}
+
+/// The stderr log for `port`.
+///
+/// A separate file on purpose: the stdout log carries the launch token, so it is
+/// never the one quoted into a message a user reads or forwards.
+pub fn err_path(dir: &Path, port: u16) -> PathBuf {
+    dir.join(format!("server-{port}.err.log"))
+}
 
 /// The startup token for `port`, read from the tail of its server log.
 ///
 /// Only the tail matters: the newest entry for the port is the live token.
 pub fn token_from_log(dir: &Path, port: u16) -> Option<String> {
-    let file = dir.join(format!("server-{port}.out.log"));
-    let mut handle = fs::File::open(file).ok()?;
+    let mut handle = fs::File::open(out_path(dir, port)).ok()?;
     let len = handle.metadata().ok()?.len();
     if len == 0 {
         return None;
@@ -33,14 +50,84 @@ pub fn token_from_log(dir: &Path, port: u16) -> Option<String> {
     // and a decode that fails there answers `None` for a token sitting in plain
     // sight below it. The replacement characters it may start with cannot reach
     // a match, because the window opens far above the line that matters.
-    let buf = String::from_utf8_lossy(&buf);
+    token_in(&String::from_utf8_lossy(&buf), port)
+}
 
+/// The startup token for `port` inside `text`, newest match wins.
+///
+/// Split out of [`token_from_log`] so the same reading serves a window that
+/// begins at a byte offset, which is how [`token_since`] answers "did *this*
+/// run write one".
+pub fn token_in(text: &str, port: u16) -> Option<String> {
     // `dsh web: http://127.0.0.1:<port>/?token=<token>`
     let re = regex::Regex::new(r"dsh web:\s+http://127\.0\.0\.1:(\d+)/\?token=(\S+)").ok()?;
-    re.captures_iter(buf.as_ref())
+    re.captures_iter(text)
         .filter(|cap| cap[1].parse::<u16>() == Ok(port))
         .last()
         .map(|cap| cap[2].to_string())
+}
+
+/// The startup token written for `port` since byte `from`.
+///
+/// Nothing rotates these logs and they are only ever appended to, so a token in
+/// the tail may belong to an *earlier* run on the same port. Telling "this launch
+/// never wrote one" apart from "this launch's token was refused" needs a window
+/// that starts where the launch did.
+pub fn token_since(dir: &Path, port: u16, from: u64) -> Option<String> {
+    read_since(&out_path(dir, port), from).and_then(|text| token_in(&text, port))
+}
+
+/// The last few non-empty lines `port`'s server wrote to stderr since `from`.
+///
+/// Decoded with [`crate::console::decode`] rather than lossily: a Windows dsh
+/// writes its own errors in the machine's code page, and those are exactly the
+/// lines a failure message ends up quoting.
+pub fn stderr_since(dir: &Path, port: u16, from: u64) -> Option<String> {
+    let bytes = read_since_bytes(&err_path(dir, port), from)?;
+    tail_lines(&crate::console::decode(&bytes))
+}
+
+/// A file from byte `from` to its end, or `None` when there is nothing new there.
+fn read_since(path: &Path, from: u64) -> Option<String> {
+    read_since_bytes(path, from).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The bytes of the above, for a caller that decodes them itself.
+fn read_since_bytes(path: &Path, from: u64) -> Option<Vec<u8>> {
+    let mut handle = fs::File::open(path).ok()?;
+    let len = handle.metadata().ok()?.len();
+    if len <= from {
+        return None;
+    }
+    handle.seek(SeekFrom::Start(from)).ok()?;
+    let mut buf = Vec::new();
+    handle.read_to_end(&mut buf).ok()?;
+    (!buf.is_empty()).then_some(buf)
+}
+
+/// The last few non-empty lines of `text`, or `None` when it has none.
+///
+/// Pure, so the caps are pinned without a file: this ends up in a dialog, and a
+/// failing server must not be able to make that dialog unreadable.
+fn tail_lines(text: &str) -> Option<String> {
+    let mut lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    if lines.len() > ERR_TAIL_LINES {
+        lines.drain(..lines.len() - ERR_TAIL_LINES);
+    }
+    let mut tail = lines.join("\n");
+    let excess = tail.chars().count().saturating_sub(ERR_TAIL_CHARS);
+    if excess > 0 {
+        // Cut from the front: the end of a stack trace is where the reason is.
+        tail = format!("…{}", tail.chars().skip(excess).collect::<String>());
+    }
+    Some(tail)
 }
 
 /// How long a log file keeps naming its port as a candidate.
@@ -114,7 +201,10 @@ pub fn logged_ports(dir: &Path) -> Vec<u16> {
 mod tests {
     use std::path::Path;
 
-    use super::{logged_ports, recent_enough, token_from_log, LOG_PORT_MAX_AGE, LOG_TAIL_BYTES};
+    use super::{
+        logged_ports, out_path, recent_enough, stderr_since, tail_lines, token_from_log, token_in,
+        token_since, ERR_TAIL_CHARS, ERR_TAIL_LINES, LOG_PORT_MAX_AGE, LOG_TAIL_BYTES,
+    };
 
     #[test]
     fn logged_ports_are_the_candidates_and_nothing_else() {
@@ -188,5 +278,85 @@ mod tests {
         ));
         // A modification time ahead of the clock is not evidence about a server.
         assert!(recent_enough(now + Duration::from_secs(86_400), now));
+    }
+
+    #[test]
+    fn a_token_from_a_previous_run_is_not_this_run_s_token() {
+        // The logs are appended to and never rotated, so "the port's token" and
+        // "the token this launch wrote" are different questions — and the failure
+        // message has to answer the second one to mean anything.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let log = out_path(dir.path(), 3080);
+        std::fs::write(&log, "dsh web: http://127.0.0.1:3080/?token=OLD\n").expect("write");
+        let from = std::fs::metadata(&log).expect("metadata").len();
+
+        // Nothing new yet: this run has written no token.
+        assert_eq!(token_since(dir.path(), 3080, from), None);
+        // The tail still finds the old one, which is why the offset matters.
+        assert_eq!(token_from_log(dir.path(), 3080).as_deref(), Some("OLD"));
+
+        std::fs::write(
+            &log,
+            "dsh web: http://127.0.0.1:3080/?token=OLD\ndsh web: http://127.0.0.1:3080/?token=NEW\n",
+        )
+        .expect("write");
+        assert_eq!(token_since(dir.path(), 3080, from).as_deref(), Some("NEW"));
+        // Another port's line in the same window is not this port's token.
+        assert_eq!(
+            token_in("dsh web: http://127.0.0.1:3081/?token=X", 3080),
+            None
+        );
+    }
+
+    #[test]
+    fn the_stderr_tail_is_this_run_s_lines_and_stays_readable() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let log = dir.path().join("server-3080.err.log");
+        std::fs::write(&log, "an earlier run's dying words\n").expect("write");
+        let from = std::fs::metadata(&log).expect("metadata").len();
+        assert_eq!(stderr_since(dir.path(), 3080, from), None);
+
+        let lines: Vec<String> = (1..=ERR_TAIL_LINES + 5)
+            .map(|n| format!("line {n}"))
+            .collect();
+        std::fs::write(
+            &log,
+            format!("an earlier run's dying words\n{}\n", lines.join("\n")),
+        )
+        .expect("write");
+
+        let tail = stderr_since(dir.path(), 3080, from).expect("this run wrote lines");
+        assert!(!tail.contains("earlier run"), "{tail}");
+        assert_eq!(tail.lines().count(), ERR_TAIL_LINES);
+        assert!(
+            tail.ends_with(&format!("line {}", ERR_TAIL_LINES + 5)),
+            "{tail}"
+        );
+
+        // A single enormous line is cut from the front, where a stack trace is
+        // least informative, and the mark says so.
+        let huge = format!("{}\n", "x".repeat(ERR_TAIL_CHARS * 3));
+        std::fs::write(&log, huge).expect("write");
+        let tail = stderr_since(dir.path(), 3080, 0).expect("a line");
+        assert_eq!(tail.chars().count(), ERR_TAIL_CHARS + 1);
+        assert!(tail.starts_with('…'), "{tail}");
+    }
+
+    #[test]
+    fn a_tail_with_nothing_in_it_is_no_tail() {
+        assert_eq!(tail_lines(""), None);
+        assert_eq!(tail_lines("\n\n   \n"), None);
+        // Trailing whitespace goes, leading whitespace stays: a stack trace is
+        // read by its indentation.
+        assert_eq!(tail_lines("one\n\n two \n").as_deref(), Some("one\n two"));
+    }
+
+    #[test]
+    fn a_missing_or_empty_log_answers_nothing_rather_than_failing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert_eq!(stderr_since(dir.path(), 3080, 0), None);
+        assert_eq!(token_since(dir.path(), 3080, 0), None);
+        std::fs::write(dir.path().join("server-3080.err.log"), "").expect("write");
+        assert_eq!(stderr_since(dir.path(), 3080, 0), None);
     }
 }

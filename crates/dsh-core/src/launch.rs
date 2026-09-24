@@ -4,13 +4,14 @@
 //! with it, and closing the window must not stop the server.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::handshake::{resolve_session, Session};
-use crate::paths::{dsh_home, log_dir, resolve_dsh_bin, resolve_node};
-use crate::ports::{can_bind, MIN_PORT};
+use crate::logs;
+use crate::paths::{dsh_home, installed_version, log_dir, resolve_dsh_bin, resolve_node};
+use crate::ports::{can_bind, probe_port, MIN_PORT, SCAN_CONNECT_TIMEOUT};
 
 /// How long we wait for a freshly spawned server to serve its UI.
 pub const BOOT_TIMEOUT_SECS: u64 = 120;
@@ -61,6 +62,16 @@ impl SpawnSpec {
             "--no-open".to_string(),
         ]
     }
+
+    /// The stdout log this server's output is appended to.
+    pub fn out_path(&self) -> PathBuf {
+        logs::out_path(&self.log_dir, self.port)
+    }
+
+    /// The stderr log, which is the one a failed start quotes back.
+    pub fn err_path(&self) -> PathBuf {
+        logs::err_path(&self.log_dir, self.port)
+    }
 }
 
 /// Start `dsh web` in its own process group with its output appended to the
@@ -76,11 +87,11 @@ pub fn spawn_server(spec: &SpawnSpec) -> std::io::Result<Child> {
     let out = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(spec.log_dir.join(format!("server-{}.out.log", spec.port)))?;
+        .open(spec.out_path())?;
     let err = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(spec.log_dir.join(format!("server-{}.err.log", spec.port)))?;
+        .open(spec.err_path())?;
 
     let mut command = Command::new(&spec.node);
     command
@@ -131,6 +142,104 @@ pub fn wait_for_ui(port: u16, child: &mut Child, timeout_secs: u64) -> Option<Se
             return None;
         }
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Whether the server process we spawned is still there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildState {
+    /// Still running, so the port is still taken.
+    Running,
+    /// Gone, with the exit code when the platform gave one.
+    Exited(Option<i32>),
+}
+
+/// What a wait that produced no session can be read from.
+///
+/// Three separate answers, because they used to be collapsed into one sentence
+/// and that sentence was wrong: 0.0.12's handshake regression had a server
+/// listening and serving while the dialog said the process had probably died.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootEvidence {
+    /// The child's state when the wait gave up.
+    pub child: ChildState,
+    /// Whether anything is listening on the port.
+    pub listening: bool,
+    /// Whether *this* run wrote a startup token.
+    pub token: bool,
+}
+
+/// What actually went wrong, as far as it can be told from outside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootFailure {
+    /// The child exited before its UI answered.
+    Exited(Option<i32>),
+    /// The child is alive and nothing is listening: it never bound the port.
+    NotListening,
+    /// Something is listening, but this run wrote no token to start a handshake.
+    NoToken,
+    /// A token was written and the handshake still did not complete.
+    HandshakeFailed,
+}
+
+/// Read the failure from the evidence. Pure, so every arm is pinned by a test.
+pub fn boot_failure(evidence: BootEvidence) -> BootFailure {
+    match evidence.child {
+        ChildState::Exited(code) => BootFailure::Exited(code),
+        ChildState::Running => match (evidence.listening, evidence.token) {
+            (false, _) => BootFailure::NotListening,
+            (true, false) => BootFailure::NoToken,
+            (true, true) => BootFailure::HandshakeFailed,
+        },
+    }
+}
+
+impl BootFailure {
+    /// What to tell the user, given what to look at next.
+    ///
+    /// Each arm says only what was observed and what follows from it. The dsh
+    /// version is named in the one case whose cause may be on this side of the
+    /// fence, and the stderr quoted is from this run — never from the log's tail,
+    /// which may be the previous run's dying words on the same port.
+    pub fn describe(
+        &self,
+        port: u16,
+        timeout_secs: u64,
+        log_dir: &Path,
+        dsh_version: Option<&str>,
+        stderr: Option<&str>,
+    ) -> String {
+        let mut message = match self {
+            BootFailure::Exited(None) => {
+                format!("端口 {port} 上的 dsh 进程退出了，界面没有起来。")
+            }
+            BootFailure::Exited(Some(code)) => {
+                format!("端口 {port} 上的 dsh 进程退出了（退出码 {code}），界面没有起来。")
+            }
+            BootFailure::NotListening => format!(
+                "dsh 进程还在，但 {timeout_secs} 秒内没有在端口 {port} 上监听；端口仍被它占着。"
+            ),
+            BootFailure::NoToken => format!(
+                "端口 {port} 上有服务在监听，但这次启动没有写下 token，握手无从开始；\
+                 端口仍被占着（若它是别的环境启动的，本机也进不去）。"
+            ),
+            BootFailure::HandshakeFailed => {
+                let version = match dsh_version {
+                    Some(version) => format!("本机 dsh 版本 {version}"),
+                    None => "本机 dsh 版本未知".to_string(),
+                };
+                format!(
+                    "端口 {port} 上的服务在监听、token 也拿到了，但握手没有完成：\
+                     换不到会话 cookie，或者换到的 cookie 打不开界面。{version}——\
+                     若它比本壳新，很可能是它改了握手方式。"
+                )
+            }
+        };
+        if let Some(stderr) = stderr {
+            message.push_str(&format!("\n它这次写到 stderr 的最后几行：\n{stderr}"));
+        }
+        message.push_str(&format!("\n日志目录：{}", log_dir.display()));
+        message
     }
 }
 
@@ -192,15 +301,38 @@ where
     }
     progress(&format!("正在端口 {port} 启动 dsh 服务…"));
     let spec = SpawnSpec::resolve(port, log_dir())?;
+    // Where this run's output begins. Nothing rotates these logs and they are
+    // only appended to, so a tail read after the fact may belong to the previous
+    // run on the same port: the offset is what makes the evidence this run's.
+    let out_from = fs::metadata(spec.out_path())
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let err_from = fs::metadata(spec.err_path())
+        .map(|meta| meta.len())
+        .unwrap_or(0);
     let mut child = spawn_server(&spec).map_err(|error| format!("启动 dsh 服务失败：{error}"))?;
     let started = Instant::now();
     if let Some(session) = wait_for_ui(port, &mut child, BOOT_TIMEOUT_SECS) {
         progress(&format!("服务已就绪（{} 秒）", started.elapsed().as_secs()));
         Ok(Launch::Started(session))
     } else {
-        Err(format!(
-            "端口 {port} 上的 dsh 服务在 {BOOT_TIMEOUT_SECS} 秒内未就绪（进程已退出或超时）。\n日志目录：{}",
-            spec.log_dir.display()
+        let evidence = BootEvidence {
+            child: match child.try_wait() {
+                Ok(Some(status)) => ChildState::Exited(status.code()),
+                // A child that cannot be asked is reported as still there: that
+                // makes the message say the port is taken, which is the claim
+                // that cannot mislead.
+                Ok(None) | Err(_) => ChildState::Running,
+            },
+            listening: probe_port(port, SCAN_CONNECT_TIMEOUT),
+            token: logs::token_since(&spec.log_dir, port, out_from).is_some(),
+        };
+        Err(boot_failure(evidence).describe(
+            port,
+            BOOT_TIMEOUT_SECS,
+            &spec.log_dir,
+            installed_version().as_deref(),
+            logs::stderr_since(&spec.log_dir, port, err_from).as_deref(),
         ))
     }
 }
@@ -208,4 +340,109 @@ where
 /// [`start_on_with_progress`] without progress reporting.
 pub fn start_on(port: u16) -> Result<Launch, String> {
     start_on_with_progress(port, |_| {})
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{boot_failure, BootEvidence, BootFailure, ChildState};
+
+    fn running(listening: bool, token: bool) -> BootEvidence {
+        BootEvidence {
+            child: ChildState::Running,
+            listening,
+            token,
+        }
+    }
+
+    #[test]
+    fn each_failed_boot_is_read_from_its_own_evidence() {
+        // The four cases one sentence used to cover, and the reason they had to
+        // be pulled apart: only two of them are about a process that died.
+        assert_eq!(
+            boot_failure(BootEvidence {
+                child: ChildState::Exited(Some(1)),
+                listening: false,
+                token: false,
+            }),
+            BootFailure::Exited(Some(1))
+        );
+        // A process killed by a signal has no code, which is not "still running".
+        assert_eq!(
+            boot_failure(BootEvidence {
+                child: ChildState::Exited(None),
+                listening: true,
+                token: true,
+            }),
+            BootFailure::Exited(None)
+        );
+        assert_eq!(
+            boot_failure(running(false, false)),
+            BootFailure::NotListening
+        );
+        assert_eq!(boot_failure(running(true, false)), BootFailure::NoToken);
+        assert_eq!(
+            boot_failure(running(true, true)),
+            BootFailure::HandshakeFailed
+        );
+    }
+
+    #[test]
+    fn a_handshake_failure_names_the_version_and_never_a_dead_process() {
+        // 0.0.12 in one assertion: the server was up, the token was in hand, and
+        // the message said the process had probably exited. It must not be able
+        // to say that again.
+        let described = BootFailure::HandshakeFailed.describe(
+            3600,
+            120,
+            Path::new("/home/u/.dsh/launcher/logs"),
+            Some("0.1.7-rc.1"),
+            None,
+        );
+        assert!(described.contains("token 也拿到了"), "{described}");
+        assert!(described.contains("0.1.7-rc.1"), "{described}");
+        assert!(described.contains("改了握手方式"), "{described}");
+        assert!(!described.contains("进程退出"), "{described}");
+        assert!(described.contains("日志目录：/home/u/.dsh/launcher/logs"));
+    }
+
+    #[test]
+    fn an_exited_child_is_reported_with_its_code_and_this_run_s_stderr() {
+        let described = BootFailure::Exited(Some(2)).describe(
+            3080,
+            120,
+            Path::new("/logs"),
+            Some("0.1.7-rc.1"),
+            Some("Error: plugin tree failed to load"),
+        );
+        assert!(described.contains("退出码 2"), "{described}");
+        assert!(
+            described.contains("plugin tree failed to load"),
+            "{described}"
+        );
+        // The version is not the point when the process is gone.
+        assert!(!described.contains("0.1.7-rc.1"), "{described}");
+    }
+
+    #[test]
+    fn a_process_that_is_still_there_is_said_to_hold_the_port() {
+        // The other half of the old message's problem: a server that never bound,
+        // or never wrote a token, leaves a process behind, and the next launch on
+        // that port will find it. Saying so is the difference between a bug and a
+        // user who waits for a port to come free.
+        for failure in [BootFailure::NotListening, BootFailure::NoToken] {
+            let described = failure.describe(3080, 120, Path::new("/logs"), None, None);
+            assert!(described.contains("仍被"), "{described}");
+            assert!(!described.contains("进程退出了"), "{described}");
+        }
+    }
+
+    #[test]
+    fn a_failure_without_a_tail_is_still_a_sentence() {
+        let described =
+            BootFailure::NotListening.describe(3080, 120, Path::new("/logs"), None, None);
+        assert!(!described.contains("stderr"), "{described}");
+        assert_eq!(described.lines().count(), 2, "{described}");
+    }
 }
