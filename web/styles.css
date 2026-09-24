@@ -468,6 +468,50 @@ button.ghost:hover {
   margin-top: 8px;
 }
 
+/* ── the ports this machine has used ───────────────────────────────────── */
+
+.known {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.known-label {
+  font-size: 12px;
+}
+
+.known button {
+  font: inherit;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.known button:hover {
+  border-color: var(--brand);
+}
+
+/* The port already serving dsh is the one worth clicking, so it is the one that
+   is coloured; the others still answer "why not that one" before the user tries
+   it in the field. */
+.known button.reuse {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.known button.occupied,
+.known button.foreign,
+.known button.too-low {
+  color: var(--text-dim);
+}
+
 /* ── footer ────────────────────────────────────────────────────────────── */
 
 .dialog-foot {

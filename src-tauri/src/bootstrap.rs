@@ -11,10 +11,10 @@
 
 use tauri::{AppHandle, Emitter};
 
-use dsh_xswt_tauriapp_core::{launch, server};
+use dsh_xswt_tauriapp_core::{launch, paths::log_dir, server};
 
 use crate::shell_log;
-use crate::state::{self, Phase, SharedShell, EVENT_CHOOSE, EVENT_READY};
+use crate::state::{self, Phase, PortVerdict, SharedShell, EVENT_CHOOSE, EVENT_READY};
 use crate::{guest, update};
 
 /// Find what is running, work out a port to suggest, and offer the choice.
@@ -45,11 +45,27 @@ pub fn discover(app: AppHandle, shell: SharedShell) {
     };
 
     let running_port = plan.running.as_ref().map(|session| session.port);
+
+    // What else this machine has been running, so the dialog can offer answers
+    // instead of a number to remember. Probed out here, not under the lock: every
+    // entry touches the network, and the shell's state must not be held across
+    // that. The verdicts are `check_port`'s, which is the same answer the prompt
+    // gives a typed port.
+    let known: Vec<PortVerdict> = server::known_ports(&log_dir(), server::KNOWN_PORT_LIMIT)
+        .into_iter()
+        .map(|known| PortVerdict {
+            kind: state::kind_of(&known.choice),
+            port: known.port,
+        })
+        .collect();
+    shell_log!("[dsh-harness] offering {} known port(s)", known.len());
+
     if let Ok(mut guard) = shell.lock() {
         guard.state.phase = Phase::Choosing;
         guard.state.default_port = Some(plan.suggested_port);
         guard.state.running_port = running_port;
         guard.state.reused = running_port.is_some();
+        guard.state.known_ports = known;
         guard.state.message = match running_port {
             Some(port) => format!("已发现端口 {port} 上运行中的 dsh 服务"),
             None => format!("将在端口 {} 上启动 dsh 服务", plan.suggested_port),

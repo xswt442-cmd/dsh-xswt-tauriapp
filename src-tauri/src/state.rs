@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{geometry, handshake, ports, self_update, updates, zoom};
+use dsh_xswt_tauriapp_core::{geometry, handshake, ports, self_update, server, updates, zoom};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -93,6 +93,56 @@ pub struct ShellState {
     pub update: Option<updates::UpdateReport>,
     /// Why the last update check failed, if it did.
     pub update_error: Option<String>,
+    /// Ports this machine has run dsh on, newest first, each with what choosing
+    /// it would do now. What the dialog offers instead of asking the user to
+    /// remember a number.
+    pub known_ports: Vec<PortVerdict>,
+}
+
+/// What the port in the dialog would do, classified.
+///
+/// Only the classification crosses the bridge: the wording belongs to the page,
+/// which also styles the cases differently. Defined here rather than beside the
+/// command that produces it, for the reason above — it is part of the snapshot a
+/// page reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PortKind {
+    /// A dsh is already running there and will be entered.
+    Reuse,
+    /// Nothing is listening there; a server will be started.
+    Start,
+    /// Something else owns the port.
+    Occupied,
+    /// A dsh is there, but this machine cannot enter its session.
+    Foreign,
+    /// Below the port a desktop application may bind.
+    TooLow,
+}
+
+/// The answer to "what if I used this port?", with the port it is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PortVerdict {
+    /// What would happen.
+    pub kind: PortKind,
+    /// The port that was asked about.
+    pub port: u16,
+}
+
+/// The cookie-free reading of a port's choice, for anything that leaves Rust.
+///
+/// `PortChoice::Reuse` carries a [`handshake::Session`], which holds the dsh
+/// session cookie, and a page must never be handed that. One conversion in one
+/// place, so the command the prompt uses and the list the dialog offers cannot
+/// disagree about the same port.
+pub fn kind_of(choice: &server::PortChoice) -> PortKind {
+    match choice {
+        server::PortChoice::Reuse(_) => PortKind::Reuse,
+        server::PortChoice::Start => PortKind::Start,
+        server::PortChoice::Occupied => PortKind::Occupied,
+        server::PortChoice::Foreign => PortKind::Foreign,
+        server::PortChoice::TooLow => PortKind::TooLow,
+    }
 }
 
 /// Result of one dsh update check, as delivered to the bootstrap page.

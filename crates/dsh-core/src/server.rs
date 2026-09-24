@@ -8,6 +8,7 @@
 //! in [`crate::handshake`], the log in [`crate::logs`], process work in
 //! [`crate::launch`].
 
+use std::path::Path;
 use std::time::Instant;
 
 use crate::handshake::{http_get, resolve_session, Session, AUTH_REQUIRED};
@@ -72,6 +73,41 @@ pub fn check_port(port: u16) -> PortChoice {
     } else {
         PortChoice::Occupied
     }
+}
+
+/// How many ports the launcher log may offer the dialog at once.
+///
+/// Every entry costs a connect probe, and a second HTTP probe when something is
+/// listening but not enterable, so the list stops here rather than walking every
+/// log the machine has ever written. Six is a machine that has used a handful of
+/// ports on purpose; what is past it is history.
+pub const KNOWN_PORT_LIMIT: usize = 6;
+
+/// A port this machine has run a dsh server on, and what it would do now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownPort {
+    /// The port.
+    pub port: u16,
+    /// [`check_port`]'s answer about it.
+    pub choice: PortChoice,
+}
+
+/// What the ports named by the launcher log would do, newest log first.
+///
+/// The port is the user's, and today the field takes only a number they have to
+/// remember: this is the list discovery already walks, offered as answers instead
+/// of as a suggestion. Each entry is asked the question the prompt asks a typed
+/// port, so the list cannot offer something the prompt would then refuse — and a
+/// port already serving dsh reads as one to enter rather than one to start on.
+pub fn known_ports(dir: &Path, limit: usize) -> Vec<KnownPort> {
+    logged_ports(dir)
+        .into_iter()
+        .take(limit)
+        .map(|port| KnownPort {
+            port,
+            choice: check_port(port),
+        })
+        .collect()
 }
 
 /// What the shell should offer before it starts anything.
@@ -155,7 +191,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{check_port, PortChoice};
+    use super::{check_port, known_ports, PortChoice};
     use crate::ports::MIN_PORT;
 
     #[test]
@@ -164,5 +200,35 @@ mod tests {
         // network is what makes this testable without a server.
         assert_eq!(check_port(MIN_PORT - 1), PortChoice::TooLow);
         assert_eq!(check_port(80), PortChoice::TooLow);
+    }
+
+    #[test]
+    fn the_offered_ports_are_the_newest_ones_and_only_a_few() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        // Written one after another, so the newest log is the last one written —
+        // and that is the port whose server is most likely still running.
+        for port in [40_001u16, 40_002, 40_003] {
+            std::fs::write(dir.path().join(format!("server-{port}.out.log")), "").expect("write");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let offered = known_ports(dir.path(), 2);
+        // The cap is what keeps the dialog quick: every entry is probed, and a
+        // machine accumulates a log per port it has ever used.
+        assert_eq!(
+            offered.iter().map(|known| known.port).collect::<Vec<_>>(),
+            vec![40_003, 40_002]
+        );
+        // Each entry carries `check_port`'s own verdict, which is the same answer
+        // the prompt gives a typed port — that is what keeps the two from
+        // disagreeing about a port the user then confirms.
+        assert!(matches!(
+            offered[0].choice,
+            PortChoice::Start | PortChoice::Occupied | PortChoice::Reuse(_)
+        ));
+
+        assert!(known_ports(dir.path(), 0).is_empty());
+        // A machine that has never run dsh offers nothing rather than failing.
+        assert!(known_ports(std::path::Path::new("/nonexistent/logs"), 6).is_empty());
     }
 }

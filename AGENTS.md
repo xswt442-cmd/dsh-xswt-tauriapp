@@ -45,7 +45,11 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   answer. Only a **typed** port is remembered — accepting the default must leave the
   suggestion free to keep tracking the first free port. Listening but not enterable is
   `Foreign`, not `Occupied` (a Windows-side instance seen from WSL looks like that;
-  "occupied" reads as a bug).
+  "occupied" reads as a bug). The dialog also lists the logged ports with `check_port`'s
+  verdict on each (`server::known_ports`), so the running one is a click rather than a number
+  to remember; that list is capped, because every entry is probed. Only the cookie-free
+  `PortKind` crosses to the page — `PortChoice::Reuse` carries a `Session`, and
+  `state::kind_of` is the one conversion.
 - Menu and tray must never be able to stop startup: `menu::install` is logged and ignored
   on failure. The bootstrap window is the one thing to fail hard on.
 - Shortcuts are tray-based and grabbed **only while one of our windows has focus**; a

@@ -5,41 +5,14 @@
 //! remote origin that no capability covers. That is deliberate — the wrapped app
 //! must never gain access to the harness's command surface.
 
-use dsh_xswt_tauriapp_core::server::{self, PortChoice};
-use serde::Serialize;
+use dsh_xswt_tauriapp_core::server;
 use tauri::{AppHandle, State};
 
-use crate::state::{self, SelfUpdatePayload, SharedShell, ShellState, UpdatePayload};
+use crate::state::{
+    self, kind_of, PortVerdict, SelfUpdatePayload, SharedShell, ShellState, UpdatePayload,
+};
 use crate::update;
 use crate::{bootstrap, guest, shell_log};
-
-/// What the port in the dialog would do, classified.
-///
-/// Only the classification crosses the bridge: the wording belongs to the page,
-/// which also styles the three cases differently.
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PortKind {
-    /// A dsh is already running there and will be entered.
-    Reuse,
-    /// Nothing is listening there; a server will be started.
-    Start,
-    /// Something else owns the port.
-    Occupied,
-    /// A dsh is there, but this machine cannot enter its session.
-    Foreign,
-    /// Below the port a desktop application may bind.
-    TooLow,
-}
-
-/// The answer to "what if I used this port?", with the port it is about.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct PortVerdict {
-    /// What would happen.
-    pub kind: PortKind,
-    /// The port that was asked about.
-    pub port: u16,
-}
 
 /// The current snapshot, for the page to pull after it has attached listeners.
 #[tauri::command]
@@ -71,14 +44,10 @@ pub async fn open_dsh(app: AppHandle, shell: State<'_, SharedShell>) -> Result<(
 /// callback, on the main thread, with the window frozen for as long as they take.
 #[tauri::command]
 pub async fn check_port(port: u16) -> PortVerdict {
-    let kind = match server::check_port(port) {
-        PortChoice::Reuse(_) => PortKind::Reuse,
-        PortChoice::Start => PortKind::Start,
-        PortChoice::Occupied => PortKind::Occupied,
-        PortChoice::Foreign => PortKind::Foreign,
-        PortChoice::TooLow => PortKind::TooLow,
-    };
-    PortVerdict { kind, port }
+    PortVerdict {
+        kind: kind_of(&server::check_port(port)),
+        port,
+    }
 }
 
 /// Start — or adopt — a server on the port the user chose.

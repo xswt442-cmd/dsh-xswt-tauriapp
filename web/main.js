@@ -302,6 +302,7 @@ function renderDialog() {
   else el("check-error").classList.add("hidden");
   el("dismiss-target").textContent = dismissTarget || "—";
   renderChannels();
+  renderKnownPorts(shell?.known_ports);
   updateButtons();
 }
 
@@ -352,6 +353,58 @@ function setPortHint(kind, port) {
     : shell?.default_port
       ? `留空即在端口 ${shell.default_port} 启动；灰色数字是默认值。`
       : "留空即自动选择端口。";
+}
+
+/** How a verdict reads as a chip. The long sentence lives in `setPortHint`; a
+ * chip is a label, not a paragraph. */
+const KNOWN_LABEL = {
+  reuse: "可复用",
+  start: "空闲",
+  occupied: "被占用",
+  foreign: "别的 dsh",
+  "too-low": "端口过低",
+};
+
+/**
+ * Offer the ports this machine has run dsh on, newest first.
+ *
+ * The field takes a number the user has to remember; this is the same question
+ * answered for the ports that already exist. Clicking a chip fills the field and
+ * does nothing else — confirming stays the one place that acts. The verdicts come
+ * from Rust and are the answer the prompt gives a typed port, so the list cannot
+ * promise something the prompt would then refuse.
+ */
+function renderKnownPorts(known) {
+  const box = el("known-ports");
+  box.replaceChildren();
+  const ports = Array.isArray(known) ? known : [];
+  if (ports.length === 0) {
+    box.classList.add("hidden");
+    return;
+  }
+
+  const label = document.createElement("span");
+  label.className = "known-label muted";
+  label.textContent = "用过的端口";
+  box.append(label);
+
+  for (const entry of ports) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = entry.kind;
+    // The port and its verdict, because two ports that matter here — the running
+    // one and the free one — look exactly alike as numbers.
+    button.textContent = `${entry.port} · ${KNOWN_LABEL[entry.kind] ?? entry.kind}`;
+    button.title = `端口 ${entry.port}`;
+    button.addEventListener("click", () => {
+      el("port-input").value = String(entry.port);
+      setPortError("");
+      setPortHint(entry.kind, entry.port);
+      el("port-input").focus();
+    });
+    box.append(button);
+  }
+  box.classList.remove("hidden");
 }
 
 /** Show or clear the port error line. */
