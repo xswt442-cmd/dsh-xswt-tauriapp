@@ -13,5 +13,8 @@ pub mod window;
 pub mod zoom;
 
 pub use session::prime_cookie;
-pub use window::{devtools_available, reload, retire, show, spawn, toggle_devtools};
+pub use window::{
+    devtools_available, reload, remember_geometry, remember_geometry_now, retire, show, spawn,
+    toggle_devtools,
+};
 pub use zoom::{zoom_in, zoom_out, zoom_reset};

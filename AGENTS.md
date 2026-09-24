@@ -59,6 +59,20 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   factor remembered under the config dir and `DSH_SHELL_ZOOM` pinning it for a session (the
   environment wins). WSLg renders at scale 1 whatever Windows is scaled to, which is the case
   that made remembering it worth doing.
+- The guest window's shape is remembered in **physical** pixels: `outer_position`/`inner_size`
+  report physical, `set_position`/`set_size` take physical, and only the builder's
+  `position`/`inner_size` are logical — a round trip through the builder drifts on a display
+  scaled to anything but 100%. A remembered position is used only where
+  `geometry::lands_on_a_display` finds a display that is there *now*: an unplugged monitor
+  leaves coordinates off-screen, and a window nobody can see looks exactly like a shell that
+  never started. The write is throttled while the window is dragged, and taken once more,
+  unthrottled, on the way out.
+- One shell at a time: the single-instance plugin raises the running window, and is registered
+  only where `single_instance_supported()` says its mechanism exists. On Linux that mechanism
+  is D-Bus and the plugin's setup *unwraps* the session connection, so a desktop with no
+  session bus would lose the shell entirely — `panic = "abort"` in release. `DSH_SHELL_ALLOW_MULTIPLE=1`
+  opts out, for two shells on two ports. It is the one plugin that earns its place beside
+  `link`'s hand-rolled opener.
 - Never offer an update from a channel less stable than the installed one, and scope
   "don't remind me" to one version.
 - Two update paths, two stores: dsh from npm (`updates`), this application from its own

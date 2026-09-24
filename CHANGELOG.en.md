@@ -5,6 +5,11 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+### Added
+
+- The dsh window's size and position are remembered and restored, and a remembered position is used only while a display that is here now can still show it.
+- A second launch raises the shell that is already running instead of opening a second window; `DSH_SHELL_ALLOW_MULTIPLE=1` runs several at once.
+
 ### Fixed
 
 - A failed start is no longer one sentence for three different things: a process that exited, a service listening without writing a token, and a handshake that did not complete are told apart — the last names the installed dsh version — and the tail of this run's stderr comes with it.

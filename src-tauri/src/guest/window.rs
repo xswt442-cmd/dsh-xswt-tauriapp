@@ -5,6 +5,7 @@
 
 use std::time::{Duration, Instant};
 
+use dsh_xswt_tauriapp_core::geometry;
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -15,6 +16,17 @@ use crate::state::{self, Handoff, SharedShell, BOOTSTRAP_LABEL, GUEST_LABEL};
 
 /// How long the guest's first load may take before it is called a failure.
 const GUEST_LOAD_TIMEOUT: Duration = Duration::from_secs(90);
+/// The shape the window takes when nothing has been remembered, in logical pixels
+/// — which is what the builder takes. A remembered geometry is applied afterwards
+/// in physical pixels, the unit it was read in.
+const GUEST_WIDTH: f64 = 1500.0;
+const GUEST_HEIGHT: f64 = 940.0;
+/// How often the window's geometry may be written while it is being dragged.
+///
+/// These events arrive continuously, and the last one is the one that matters —
+/// the close path takes a final reading, throttle or not — so anything more
+/// frequent than this is a disk write per pixel of mouse movement.
+const GEOMETRY_WRITE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Create the guest window and point it at the prepared session.
 ///
@@ -52,11 +64,27 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         guard.zoom
     };
 
+    // A remembered geometry is used only when a display that is here *now* would
+    // actually show it: a position recorded on a monitor that has since been
+    // unplugged would put the window where nobody can reach it, which looks
+    // exactly like a shell that did not start.
+    let remembered = {
+        let found = shell
+            .lock()
+            .ok()
+            .and_then(|guard| guard.window_memory.geometry())
+            .filter(|geometry| geometry::lands_on_a_display(geometry, &displays(app)));
+        if found.is_some() {
+            shell_log!("[dsh-harness] the guest window will reopen where it was");
+        }
+        found
+    };
+
     let load_shell = shell.clone();
     let session_url = url.clone();
     let window = match WebviewWindowBuilder::new(app, GUEST_LABEL, WebviewUrl::External(url))
         .title("DeepSeek Harness")
-        .inner_size(1500.0, 940.0)
+        .inner_size(GUEST_WIDTH, GUEST_HEIGHT)
         .min_inner_size(900.0, 600.0)
         .center()
         .resizable(true)
@@ -107,6 +135,17 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
             return Err(format!("无法创建 dsh 窗口：{error}"));
         }
     };
+    // Applied after the build rather than through the builder, because the two
+    // sides have to agree on units and only the setters do: what
+    // `outer_position`/`inner_size` report is physical pixels, which is what
+    // `set_position`/`set_size` take, while the builder's `position`/`inner_size`
+    // are logical. Round-tripping through the builder would drift the window a
+    // little on every launch of a display scaled to anything but 100%. The window
+    // is still hidden here, so nothing is seen to move.
+    if let Some(geometry) = remembered {
+        let _ = window.set_size(tauri::PhysicalSize::new(geometry.width, geometry.height));
+        let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
+    }
     let _ = window.set_zoom(zoom);
     shell_log!("[dsh-harness] guest window created for {}", session.url);
 
@@ -180,6 +219,73 @@ fn watch(app: &AppHandle, shell: &SharedShell) {
 pub fn retire(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(GUEST_LABEL) {
         let _ = window.destroy();
+    }
+}
+
+// ── geometry ──────────────────────────────────────────────────────────────
+
+/// Every display the window could be put on, in the unit the geometry is kept in.
+fn displays(app: &AppHandle) -> Vec<geometry::Display> {
+    app.available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| geometry::Display {
+            x: monitor.position().x,
+            y: monitor.position().y,
+            width: monitor.size().width,
+            height: monitor.size().height,
+        })
+        .collect()
+}
+
+/// Remember where the guest window is, throttled while it is being dragged.
+pub fn remember_geometry(app: &AppHandle) {
+    remember(app, false);
+}
+
+/// Remember it now, throttle or not: the last reading before the window goes.
+pub fn remember_geometry_now(app: &AppHandle) {
+    remember(app, true);
+}
+
+/// Read the guest window's shape and keep it.
+///
+/// Physical pixels, taken from the frame's position and the client's size —
+/// exactly what the next launch hands back to `set_position`/`set_size`.
+pub fn remember(app: &AppHandle, force: bool) {
+    let Some(shell) = app.try_state::<SharedShell>() else {
+        return;
+    };
+    let Some(window) = app.get_webview_window(GUEST_LABEL) else {
+        return;
+    };
+    let (Ok(size), Ok(position)) = (window.inner_size(), window.outer_position()) else {
+        return;
+    };
+    let geometry = geometry::Geometry {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    };
+    let Ok(mut guard) = shell.lock() else {
+        return;
+    };
+    if guard.window_memory.geometry() == Some(geometry) {
+        return;
+    }
+    if !force
+        && guard
+            .window_saved_at
+            .is_some_and(|at| at.elapsed() < GEOMETRY_WRITE_INTERVAL)
+    {
+        return;
+    }
+    match guard.window_memory.remember(geometry) {
+        Ok(()) => guard.window_saved_at = Some(Instant::now()),
+        Err(error) => {
+            shell_log!("[dsh-harness] could not remember the window's geometry: {error}");
+        }
     }
 }
 

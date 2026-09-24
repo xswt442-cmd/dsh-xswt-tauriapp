@@ -27,6 +27,14 @@ tauri = { version = "2", features = ["tray-icon", "devtools", "image-png", "imag
 # hotkey manager in its own setup and fails application startup when the desktop
 # refuses, which a Wayland session does.
 global-hotkey = "0.8"
+# A second launch has to find the first one and raise *its* window, rather than
+# open a second window onto the same dsh. That needs a channel between the two
+# processes, and this is the one place it exists — a lock file would let the second
+# launch notice the first and then have no way to say anything to it. It brings no
+# capability and no permission with it, since it has no JS API. The opposite
+# judgement from `tauri-plugin-opener`, which `link` replaces with a `Command`:
+# that one really did buy only a few lines of work.
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dsh-xswt-tauriapp-core = { path = "../crates/dsh-core" }

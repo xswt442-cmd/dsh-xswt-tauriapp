@@ -31,7 +31,7 @@ mod update;
 
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{paths, ports, self_update, updates, zoom};
+use dsh_xswt_tauriapp_core::{geometry, paths, ports, self_update, updates, zoom};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Log a harness event.
@@ -148,6 +148,24 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         download_dir.display()
     );
 
+    // Where the dsh window was. Remembered for the same reason the zoom factor
+    // is, and — unlike the factor — checked against the displays that exist *now*
+    // when it is used, because a position recorded on a monitor that has since
+    // been unplugged is off-screen.
+    let window_path = app
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("window.json"));
+    let window_memory = window_path
+        .as_ref()
+        .map(geometry::WindowMemory::load)
+        .unwrap_or_default();
+    shell_log!(
+        "[dsh-harness] remembered window geometry {:?}",
+        window_memory.geometry()
+    );
+
     // A second store, not a second entry in the first one: "don't remind me
     // about dsh 0.1.5-rc.2" must not silence an update to this application.
     let self_dismiss_path = app
@@ -186,6 +204,7 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
         zoom: zoom_factor,
         zoom_memory,
         download_dir,
+        window_memory,
         ..Default::default()
     }))
 }
@@ -217,12 +236,68 @@ fn prefer_x11() {
 #[cfg(not(target_os = "linux"))]
 fn prefer_x11() {}
 
+/// Whether this launch may run beside a shell that is already up.
+///
+/// One instance is the default, because a second window onto the same dsh is
+/// almost always a mis-click rather than a wish — the same server, the same
+/// session, two windows. The escape hatch is an environment variable rather than
+/// a setting, because the case it exists for is deliberate and rare: two shells
+/// side by side, on two ports.
+fn multiple_instances_allowed() -> bool {
+    std::env::var_os("DSH_SHELL_ALLOW_MULTIPLE").is_some()
+}
+
+/// Whether an already-running shell can be reached and raised on this desktop.
+///
+/// The plugin is registered only where it can work. Its Linux half is D-Bus, and
+/// its setup *unwraps* the session connection: on a desktop with no session bus
+/// it panics, and in a release build `panic = "abort"` means the shell is simply
+/// gone. A convenience must never be able to do that, so the bus is checked for
+/// first and its absence costs the feature rather than the launch. Everywhere
+/// else the mechanism is the platform's own — a named mutex on Windows,
+/// LaunchServices on macOS — and it is always there.
+#[cfg(target_os = "linux")]
+fn single_instance_supported() -> bool {
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
+        return true;
+    }
+    // The other place a session bus is looked for, and the one a desktop with
+    // `dbus-launch` but no exported variable uses.
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .is_some_and(|dir| dir.join("bus").exists())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn single_instance_supported() -> bool {
+    true
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Before anything initialises GTK.
     prefer_x11();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    if multiple_instances_allowed() {
+        shell_log!(
+            "[dsh-harness] {} is set: a second shell is allowed",
+            "DSH_SHELL_ALLOW_MULTIPLE"
+        );
+    } else if single_instance_supported() {
+        // Registered before anything else, which is what the plugin's own docs ask
+        // for: the second launch has to be turned back before it builds a window
+        // or starts looking for a server. The raising happens inside the *first*
+        // process, which is the half a lock file could not do — see `Cargo.toml`.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            shell_log!("[dsh-harness] another instance started; bringing this one forward");
+            guest::show(app);
+        }));
+    } else {
+        shell_log!("[dsh-harness] no session bus: a second launch cannot be turned back");
+    }
+
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
             let shell = new_shell(&handle);
@@ -276,9 +351,20 @@ pub fn run() {
                     shortcuts.hold(*focused);
                 }
             }
+            // The dsh window's shape is kept as it changes, so the next launch can
+            // reopen where the user left it. Only the guest: the bootstrap window
+            // is a dialog, sized for the dialog.
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                if window.label() == state::GUEST_LABEL {
+                    guest::remember_geometry(window.app_handle());
+                }
+            }
             WindowEvent::CloseRequested { .. } => {
                 // Closing a window quits the harness. The dsh server is detached
-                // and keeps running.
+                // and keeps running. The final shape is read here, throttle or
+                // not: a move in the last second before quitting is still the one
+                // the user chose.
+                guest::remember_geometry_now(window.app_handle());
                 window.app_handle().exit(0);
             }
             _ => {}

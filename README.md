@@ -77,6 +77,7 @@ pnpm tauri build --bundles deb,rpm,appimage
 | `DSH_BIN` | 直接指定 `dsh` 的 `lib/bin.js` |
 | `DSH_NODE_BIN` | 直接指定 `node` 可执行文件 |
 | `DSH_TAURI_REGISTRY` | 覆盖版本查询地址，默认 npm registry |
+| `DSH_SHELL_ALLOW_MULTIPLE` | 非空时允许同时运行多个外壳；默认第二次启动只把已在运行的那个提到前面 |
 | `DSH_SHELL_DEBUG` | 非空时输出交接、导航与更新检查日志 |
 | `DSH_SHELL_DEVTOOLS` | 非空时在菜单中提供开发者工具（debug 构建默认提供） |
 | `DSH_SHELL_ZOOM` | dsh 窗口的初始缩放因子（0.3–3.0），优先于记忆值 |
@@ -132,6 +133,8 @@ Tauri 的快捷键只能挂在菜单 accelerator 上，而 Windows / Linux 上�
 Linux 上另有一个前提：`global-hotkey` 通过 X11 抓键，而 Wayland 原生窗口的按键不经过 X 服务器，快捷键会注册成功但永不触发。外壳因此在有 `DISPLAY` 时默认使用 X11 后端（XWayland 在所有 Wayland 桌面上都存在），设置 `DSH_SHELL_WAYLAND=1` 可退出该行为；显式设置 `GDK_BACKEND` 时外壳不干预。
 
 缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上依赖向页面注入 polyfill，与本项目的不注入原则冲突。缩放因子会被记住（存于应用配置目录），重启后仍然生效；也可以用 `DSH_SHELL_ZOOM` 指定初值，此时环境变量优先。
+
+dsh 窗口的大小与位置同样会被记住（同一个配置目录里的 `window.json`），下次启动放回原处。记忆中的位置只在当前某块显示器仍能显示它时才采用：显示器拔掉之后那些坐标在屏幕外，恢复它就等于启动了一个看不见的窗口，所以此时回到居中。再次启动外壳时，第二次进程不会开第二个窗口，而是把已经在运行的那个提到前面（`DSH_SHELL_ALLOW_MULTIPLE=1` 可绕过，用于两个端口并排跑两个外壳）。
 
 ### 外壳自身的更新
 

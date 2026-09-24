@@ -77,6 +77,7 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | `DSH_BIN` | Points directly at dsh's `lib/bin.js` |
 | `DSH_NODE_BIN` | Points directly at the `node` executable |
 | `DSH_TAURI_REGISTRY` | Overrides the version endpoint; defaults to the npm registry |
+| `DSH_SHELL_ALLOW_MULTIPLE` | When non-empty, several shells may run at once; by default a second launch only raises the one already running |
 | `DSH_SHELL_DEBUG` | When non-empty, logs the hand-off, navigation and update checks |
 | `DSH_SHELL_DEVTOOLS` | When non-empty, offers DevTools in the menu (debug builds already do) |
 | `DSH_SHELL_ZOOM` | The dsh window's initial zoom factor (0.3–3.0), which wins over the remembered one |
@@ -132,6 +133,8 @@ Tauri can bind a keyboard shortcut only through a menu accelerator, and on Windo
 On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
 
 Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins.
+
+The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE=1` opts out, for two shells on two ports side by side).
 
 ### Updates to this application itself
 

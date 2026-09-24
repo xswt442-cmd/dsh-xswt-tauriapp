@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use dsh_xswt_tauriapp_core::{handshake, ports, self_update, updates, zoom};
+use dsh_xswt_tauriapp_core::{geometry, handshake, ports, self_update, updates, zoom};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -181,6 +181,11 @@ pub struct Shell {
     /// is shown to the user as the argument to `sudo apt install` and so has to
     /// outlive the session that downloaded it.
     pub download_dir: PathBuf,
+    /// Where the dsh window last was, so the next launch puts it back.
+    pub window_memory: geometry::WindowMemory,
+    /// When that geometry was last written. A drag delivers the move events
+    /// continuously, and each one is a disk write if taken literally.
+    pub window_saved_at: Option<std::time::Instant>,
 }
 
 impl Default for Shell {
@@ -199,6 +204,8 @@ impl Default for Shell {
             // The fallback, for a shell built without an application handle: the
             // real one is resolved in `new_shell` from the cache directory.
             download_dir: self_update::fallback_downloads_dir(),
+            window_memory: geometry::WindowMemory::default(),
+            window_saved_at: None,
         }
     }
 }

@@ -28,8 +28,12 @@
 //!   its own GitHub releases rather than from npm.
 //! * [`zoom`] — the guest window's zoom factor: its bounds, the value to start
 //!   at, and the file it is remembered in.
+//! * [`geometry`] — the same question about the guest window's own shape: where
+//!   it was, whether that is still a place a window can be put, and the file it
+//!   is remembered in.
 
 pub mod console;
+pub mod geometry;
 pub mod handshake;
 pub mod launch;
 pub mod logs;
