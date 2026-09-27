@@ -5,6 +5,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+## 0.0.14 - 2026-09-28
+
 ### Added
 
 - Both changelogs now carry unreleased entries under `## Unreleased`, which the release commit renames to `## X.Y.Z - YYYY-MM-DD` and replaces with an empty one on top. `scripts/check-docs.mjs` requires exactly one, in first place, and holds the newest released section against the five version fields.

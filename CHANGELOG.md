@@ -5,6 +5,8 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ## Unreleased
 
+## 0.0.14 - 2026-09-28
+
 ### 新增
 
 - 两份 changelog 以 `## Unreleased` 段承载尚未发布的条目，发布时改名成 `## X.Y.Z - YYYY-MM-DD` 并在最前补一个空的；`scripts/check-docs.mjs` 要求每份恰好一个、且在最新位置，并拿最新已发布段的版本去对那五个版本字段。
