@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import { matchRelease, matchUnreleased, UNRELEASED } from './changelog.mjs'
 
 const read = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
 
@@ -30,9 +31,10 @@ function changelogShape(file) {
   let section
 
   for (const line of read(file).split('\n')) {
-    const version = line.match(/^##\s+(\d+\.\d+\.\d+)(?:\s+-\s+(\d{4}-\d{2}-\d{2}))?\s*$/)
-    if (version) {
-      release = { version: version[1], date: version[2] ?? '', sections: [] }
+    const released = matchRelease(line)
+    const opened = released ?? (matchUnreleased(line) ? { version: UNRELEASED, date: '' } : null)
+    if (opened) {
+      release = { version: opened.version, date: opened.date, sections: [] }
       releases.push(release)
       section = undefined
       continue
@@ -70,7 +72,26 @@ function assertEqual(left, right, message) {
 
 assertEqual(markdownShape('README.md'), markdownShape('README.en.md'), 'README structure differs between languages')
 
-const normalizeLog = (file) => changelogShape(file).map((release) => ({
+const changelogs = ['CHANGELOG.md', 'CHANGELOG.en.md'].map((file) => {
+  const releases = changelogShape(file)
+  // Two shapes that a drifted heading spelling produces, both of which have to be
+  // errors rather than a comparison of two empty lists: nothing readable as a
+  // release, and an `## Unreleased` that is missing, doubled, or not first.
+  // Entries are written under that section and the release renames it, so this is
+  // where the bilingual guard has to bite — before a release exists, not at the
+  // tag.
+  const unreleased = releases.filter(({ version }) => version === UNRELEASED)
+  if (unreleased.length !== 1 || releases[0]?.version !== UNRELEASED) {
+    throw new Error(`${file}: '## Unreleased' must appear exactly once, as the first section`)
+  }
+  const versioned = releases.filter(({ version }) => version !== UNRELEASED)
+  if (versioned.length === 0) {
+    throw new Error(`${file}: no released section in the form '## X.Y.Z - YYYY-MM-DD'`)
+  }
+  return { file, releases, newest: versioned[0].version }
+})
+
+const shape = ({ releases }) => releases.map((release) => ({
   version: release.version,
   date: release.date,
   sections: release.sections.map(({ title, items }) => ({
@@ -78,7 +99,8 @@ const normalizeLog = (file) => changelogShape(file).map((release) => ({
     items,
   })),
 }))
-assertEqual(normalizeLog('CHANGELOG.md'), normalizeLog('CHANGELOG.en.md'), 'CHANGELOG structure differs between languages')
+
+assertEqual(shape(changelogs[0]), shape(changelogs[1]), 'CHANGELOG structure differs between languages')
 
 /**
  * The package version a manifest declares.
@@ -110,6 +132,18 @@ for (const [file, version] of others) {
   }
 }
 console.log(`the five version fields agree on ${first}`)
+
+// ...and they agree with the changelog's newest *released* section, which is the
+// one the workflow appends verbatim as the release body. A bump that forgets the
+// log passes every check above — they only compare the five fields with each
+// other — and the release page then reads `Release X.Y.Z` with nothing under it.
+const newest = changelogs[0].newest
+if (newest !== first) {
+  throw new Error(
+    `${changelogs[0].file}: newest released section is ${newest} but the version fields say ${first} ` +
+      '(released sections are newest first)',
+  )
+}
 
 /** Git's all-zero revision, which GitHub reports as `before` for a new branch. */
 const NULL_REVISION = /^0+$/

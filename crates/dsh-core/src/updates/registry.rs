@@ -179,20 +179,32 @@ pub fn build_report(current: &str, doc: &RegistryDoc, dismissed: &DismissStore) 
     // stable as the installed one are considered, so an rc user is never
     // nudged onto alpha by an automatic prompt — alpha stays a deliberate
     // choice from the dialog's third column.
-    let installed_rank = stability_rank(channel_of(current));
-    let candidate = channels
-        .iter()
-        .filter(|listing| stability_rank(&listing.id) >= installed_rank)
-        .filter_map(|listing| listing.latest.clone())
-        .filter(|entry| is_newer(&entry.version, current))
-        .max_by(
-            |a, b| match (order_key(&a.version), order_key(&b.version)) {
-                (Some(x), Some(y)) => x.cmp(&y),
-                (Some(_), None) => std::cmp::Ordering::Greater,
-                (None, Some(_)) => std::cmp::Ordering::Less,
-                (None, None) => a.version.cmp(&b.version),
-            },
-        );
+    //
+    // A version belonging to no channel at all — a build number that does not
+    // parse, a fork's own scheme — is not the bottom of that ladder but a rung
+    // missing from it. Ranking it 0 would qualify every channel, and paired with
+    // `is_newer`'s string fallback that is how an updater starts offering
+    // *anything*. So nothing is offered, automatically: the dialog still lists
+    // the channels, because there the user is choosing rather than being nudged.
+    let installed = channel_of(current);
+    let candidate = if installed == "other" {
+        None
+    } else {
+        let installed_rank = stability_rank(installed);
+        channels
+            .iter()
+            .filter(|listing| stability_rank(&listing.id) >= installed_rank)
+            .filter_map(|listing| listing.latest.clone())
+            .filter(|entry| is_newer(&entry.version, current))
+            .max_by(
+                |a, b| match (order_key(&a.version), order_key(&b.version)) {
+                    (Some(x), Some(y)) => x.cmp(&y),
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (None, None) => a.version.cmp(&b.version),
+                },
+            )
+    };
 
     let candidate_dismissed = candidate
         .as_ref()
@@ -271,6 +283,35 @@ mod tests {
         assert!(is_newer("0.1.6-alpha.1", "0.1.5-rc.1"));
         // A plain release beats its own candidates.
         assert!(is_newer("0.1.5", "0.1.5-rc.2"));
+    }
+
+    #[test]
+    fn a_version_from_no_known_channel_is_offered_nothing() {
+        // The floor the automatic prompt is built on. An installed version this
+        // registry cannot place is not the least stable thing on the machine, it
+        // is an unknown; ranking it at the bottom would qualify every channel and
+        // let `is_newer`'s string fallback pick any of them, which is an updater
+        // offering whatever it found. Saying nothing is the safe answer, and the
+        // dialog still lists the channels because there the user is choosing.
+        let registry = doc(&[
+            ("0.1.5-rc.2", "2026-09-02T00:00:00Z"),
+            ("0.1.6-alpha.1", "2026-09-03T00:00:00Z"),
+            ("0.9.9", "2026-09-04T00:00:00Z"),
+        ]);
+        let unknown = build_report("nightly-build-17", &registry, &DismissStore::in_memory());
+        assert!(
+            unknown.candidate.is_none(),
+            "an unknown install is not nudged onto a channel"
+        );
+        assert!(!unknown.channels.is_empty(), "the listing stays");
+
+        // A version that *can* be placed is still compared as its own channel,
+        // so the guard above withholds a nudge rather than the update check.
+        let stable = build_report("0.1.4", &registry, &DismissStore::in_memory());
+        assert_eq!(
+            stable.candidate.map(|entry| entry.version),
+            Some("0.9.9".to_string())
+        );
     }
 
     #[test]

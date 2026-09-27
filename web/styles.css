@@ -211,8 +211,17 @@ button.ghost {
   color: var(--text);
 }
 
-button.ghost:hover {
+button.ghost:hover:not(:disabled) {
   background: var(--bg-layer-2);
+}
+
+/* The ghost button that opens the update row — `#btn-update` — starts disabled,
+   and a ghost with no disabled state looked exactly like one waiting to be
+   pressed. */
+button.ghost:disabled {
+  border-color: #2c2c30;
+  color: #6a6a70;
+  cursor: not-allowed;
 }
 
 /* ── the launch dialog ─────────────────────────────────────────────────── */
@@ -339,6 +348,13 @@ button.ghost:hover {
   background: var(--bg-layer-2);
 }
 
+/* These rows are focused by the keyboard now, and the list scrolls inside a
+   channel column: the UA ring is clipped by that box, so it gets one of its own. */
+.version:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
 .version.installed {
   color: var(--text-dim);
   cursor: default;
@@ -377,6 +393,19 @@ button.ghost:hover {
 .badge.new {
   background: #4d6bfe22;
   color: #93a8ff;
+}
+
+/* Which row is chosen is a word and not only a border colour: the mark is built
+   into every row and shown on the chosen one, so it also reaches a user who does
+   not read the highlight off the border, and a reader that gets no styling. */
+.badge.chosen {
+  display: none;
+}
+
+.version.selected .badge.chosen {
+  display: inline-block;
+  background: var(--brand);
+  color: #fff;
 }
 
 .empty {
@@ -439,7 +468,12 @@ button.ghost:hover {
 }
 
 .port input:focus {
-  outline: none;
+  /* Not `outline: none` with a border tint in its place: the dialog focuses this
+     field on open, and a colour shift on a 1px border is not a focus ring. A
+     text field keeps its ring on every path that focuses it, so `:focus` rather
+     than `:focus-visible` is the honest selector here. */
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
   border-color: var(--brand);
 }
 

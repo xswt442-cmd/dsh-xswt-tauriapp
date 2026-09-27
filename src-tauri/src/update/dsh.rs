@@ -11,29 +11,64 @@ use crate::state::{SharedShell, UpdatePayload, EVENT_UPDATE};
 
 /// Ask the registry what exists and publish the answer.
 pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
-    let current = paths::installed_version().unwrap_or_else(|| "0.0.0".to_string());
+    // Not knowing the installed version is not the same as running `0.0.0`. That
+    // string parses, classifies as stable, ranks at the top of the stability
+    // ladder and loses every comparison — so an install this crate cannot place
+    // got an update prompt on every launch, and a dialog saying it was running
+    // 0.0.0. Unknown gets its own answer: offer nothing, say nothing is known.
+    let current = paths::installed_version();
     let store = shell
         .lock()
         .map(|guard| guard.store.clone())
         .unwrap_or_default();
 
-    let payload = match updates::check(&current, &store) {
-        Ok(report) => UpdatePayload {
-            current: current.clone(),
-            should_prompt: report.should_prompt(),
-            report: Some(report),
-            error: None,
-        },
-        Err(error) => UpdatePayload {
-            current: current.clone(),
+    let mut payload = match &current {
+        None => UpdatePayload {
+            current: String::new(),
             should_prompt: false,
             report: None,
-            error: Some(error),
+            error: None,
+        },
+        Some(version) => match updates::check(version, &store) {
+            Ok(report) => UpdatePayload {
+                current: version.clone(),
+                should_prompt: report.should_prompt(),
+                report: Some(report),
+                error: None,
+            },
+            Err(error) => UpdatePayload {
+                current: version.clone(),
+                should_prompt: false,
+                report: None,
+                error: Some(error),
+            },
         },
     };
 
+    // The registry call above blocks for however long the network takes, and a
+    // "don't remind me" click can land inside that window. `store` is the list as
+    // it was when the check started, so the two dismissal-dependent answers are
+    // taken from the list as it is now — otherwise the click is undone by the
+    // check already in flight, and the page is told to prompt for a version it
+    // was just dismissed for.
+    if let Some(report) = payload.report.as_mut() {
+        let dismissed = shell.lock().ok().and_then(|guard| {
+            report
+                .candidate
+                .as_ref()
+                .map(|candidate| guard.store.is_dismissed(&candidate.version))
+        });
+        if let Some(dismissed) = dismissed {
+            report.candidate_dismissed = dismissed;
+        }
+    }
+    payload.should_prompt = payload
+        .report
+        .as_ref()
+        .is_some_and(|report| report.should_prompt());
+
     if let Ok(mut guard) = shell.lock() {
-        guard.state.current_version = Some(current);
+        guard.state.current_version = current;
         guard.state.update = payload.report.clone();
         guard.state.update_error = payload.error.clone();
     }

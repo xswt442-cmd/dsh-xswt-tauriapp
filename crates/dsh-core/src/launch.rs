@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::handshake::{resolve_session, Session};
@@ -314,6 +315,16 @@ where
     let started = Instant::now();
     if let Some(session) = wait_for_ui(port, &mut child, BOOT_TIMEOUT_SECS) {
         progress(&format!("服务已就绪（{} 秒）", started.elapsed().as_secs()));
+        // The server is meant to outlive the window that started it, and on
+        // Windows a detached child stops being our business the moment we let go.
+        // On Unix it is still a child of this process, and a dropped `Child` is
+        // never reaped: every server started here would leave a zombie entry for
+        // the life of the shell, one per start. This thread waits for the exit
+        // instead and reports nothing — the window has already said what it
+        // needed to about this server, long before it goes away.
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
         Ok(Launch::Started(session))
     } else {
         let evidence = BootEvidence {
@@ -327,6 +338,13 @@ where
             listening: probe_port(port, SCAN_CONNECT_TIMEOUT),
             token: logs::token_since(&spec.log_dir, port, out_from).is_some(),
         };
+        // The failure arm owns the same problem the success one does: this is
+        // still a child of this process, and a server that was too slow to prove
+        // itself is likelier still running than already gone. Dropping the handle
+        // on the way out to explain the failure left a zombie per failed start.
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
         Err(boot_failure(evidence).describe(
             port,
             BOOT_TIMEOUT_SECS,

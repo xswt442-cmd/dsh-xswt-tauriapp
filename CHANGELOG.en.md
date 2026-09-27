@@ -3,6 +3,49 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Added
+
+- Both changelogs now carry unreleased entries under `## Unreleased`, which the release commit renames to `## X.Y.Z - YYYY-MM-DD` and replaces with an empty one on top. `scripts/check-docs.mjs` requires exactly one, in first place, and holds the newest released section against the five version fields.
+
+### Fixed
+
+- A mixed-encoding console capture is decoded line by line: one pair of OEM bytes used to drag the whole buffer through the code page, including npm's own UTF-8 Chinese a few lines above it, and what came back was valid text in the wrong language.
+- A poisoned state lock no longer swallows the failure report. `fail()` returned on `Err`, which is exactly the moment another thread has just panicked and the user most needs to be told why nothing came up; `snapshot()` stops falling back to "not started yet".
+- A server that answers the token request with the UI *and* sets a cookie now has that cookie carried into the hand-off, instead of the guest being handed a session it cannot open.
+- Deciding "this is a dsh whose session you cannot enter from here" now reads the HTTP 401 alone, without also wanting that English phrase in the response body: a localised dsh used to fall through to "port occupied", which is exactly the wording that reads as a bug to whoever started it.
+- An install reached through a profile's symlink farm (`$DSH_HOME/profiles/<name>/node_modules/.bin/dsh`) no longer reports an update on every launch: the installed version resolves the launcher through its symlinks before walking up to `package.json`, and when it still cannot be found nothing is offered. It used to look one directory up from `.bin`, then substitute `0.0.0` for "unknown" — which every stable release beats, while the dialog told you that you were running 0.0.0.
+- A `DSH_HOME` that points somewhere not yet existing is honoured as written instead of silently falling back to `~/.dsh`. The fallback found nothing (no token, no port candidate) and the start path then helpfully created it — a second tree, and a server in it nobody asked for, beside the one the user aims dsh at.
+- A cold start walks the logged ports once. `plan` scanned them first and the dialog's list scanned them again, on top of the two probes each port already costs inside `check_port`.
+- A failed start and every link handed to the system no longer leave an unreaped child behind; the previous batch covered only the successful start.
+- A release build no longer ships the WebView inspector: each window takes it from `DSH_SHELL_DEVTOOLS` (always on in debug). The `devtools` Cargo feature had been on unconditionally, so F12 and right-click → Inspect worked in production while the menu gate only hid the menu item.
+- The installer and the four remembered settings are no longer truncated in place: bytes land in `<name>.part` and are renamed into place, so a file a reader can open was written whole, and a half installer can no longer sit at the path the dialog prints.
+- An update check in flight no longer overwrites a "don't remind me" click: whether the candidate is dismissed is recomputed against the list as it is now, not as it was when the check started.
+- Two hand-offs in a row no longer leave a built dsh window hidden: the second caller treats a taken label as the same outcome instead of a failure, which is what used to reset the state the working window still needed.
+- A server this shell started no longer leaves a zombie process when it exits on Unix; a thread waits for it.
+- A run with its zoom factor pinned by `DSH_SHELL_ZOOM` no longer rewrites the remembered factor — a pin lasts one session.
+- The single-instance accept loop returns on an unrecoverable error instead of spinning, one line of stderr per turn, for the life of the process.
+- An installed version that belongs to no known channel is offered no automatic update: it used to rank as the least stable thing on the machine, which qualified every channel.
+
+### Security
+
+- Four commands registered on the only capability-bearing window that no page ever sends are gone: `check_self_update`, `clear_dismissed`, `dismissed_versions`, `dismiss_path`. App-defined commands are not gated by a capability — registering one is making it callable from that page — and two of the four really did clear data and hand out a path.
+- A link handed to the desktop's default handler is now limited to `http`, `https` and `mailto`: `explorer` and `open` run what they are handed, and dsh writes files to disk, so a `file:` link is a launch rather than a browse. A refusal is written to the shell log.
+- An installer file name from the release API is verified as a bare file name before it is used as a path, in both the Rust and the plugin download: a name carrying a separator escaped the cache directory *and* verified itself, because the same name is the `SHA256SUMS` key.
+- The plugin no longer hands an installer over with the `runas` verb on Windows, which could elevate silently, and passes argv straight to `spawn` instead of building a shell command string.
+
+### Maintenance
+
+- The release job checks the set of artifact names before computing checksums, reading the suffix list out of `self_update.rs` rather than keeping a third copy: a renamed product or a bundle leg that produced nothing used to sail through to the release page, where the dialog then printed an `apt install` line for a file nobody attached.
+- The heading parser both docs scripts share now has its own test, wired into `npm test`. When it fails to recognise a heading the bilingual guard passes on two empty lists, which looks exactly like the guard working.
+- It is now written down that the automatic update on Linux covers the `.deb` only: the same release also publishes an `.rpm` and an `.AppImage`, which are documented manual routes rather than something the updater overlooked.
+- Released-section headings are parsed in one place, `scripts/changelog.mjs`, which both `check-docs.mjs` and `release-notes.mjs` now read through. Their patterns had disagreed, so one change of heading spelling could make both changelogs parse to nothing and the bilingual check pass on two empty lists.
+- `release-notes.mjs` accepts `X.Y.Z-rc.N` (`release.yml` cuts and marks such tags itself) and reports a missing section as a `::warning::` instead of quietly leaving the release body as one line of `Release X.Y.Z`.
+- The single-instance test that always hung on Windows now starts its accept on a thread the way the shell does, so `cargo test --lib` finishes on Windows — and the orphan it left behind was what made the previous run fail to link.
+- The startup-token pattern is compiled once rather than on every poll; `wait_for_ui` reads a 256 KiB log tail twice a second.
+- Both READMEs' environment-variable tables now state what the code tests — presence rather than non-empty — and cover `DSH_SHELL_RELEASES_API`, `DSH_BIN`, `DSH_NODE_BIN` and the plugin's four; the AGENTS.md Verify list has the front-end syntax check it was missing.
+
 ## 0.0.13 - 2026-09-24
 
 ### Added

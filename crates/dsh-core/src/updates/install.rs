@@ -39,10 +39,14 @@ const CMD_METACHARS: [char; 10] = [' ', '"', '&', '|', '<', '>', '^', '(', ')', 
 /// Quote one argv token for a `cmd.exe /c` command line.
 ///
 /// cmd groups only with double quotes, so a token that needs quoting is wrapped
-/// and its embedded quotes are doubled. `%` is in the list because cmd expands
-/// it even inside quotes; the tokens here are a path and a validated version, so
-/// the rule is stated for the one place it matters rather than because either is
-/// expected to hit it.
+/// and its embedded quotes are doubled.
+///
+/// `%` is in the list without that being a defence: cmd expands `%VAR%` *inside*
+/// quotes, so nothing quoting can do here makes a percent literal. It is stated
+/// rather than fixed because the tokens are this machine's own npm path and a
+/// version this crate parsed — neither is text from the network, and a path
+/// directory named `100%` is the only thing that can trip it. Should a token ever
+/// become somebody else's words, this is the comment that says so first.
 pub fn cmd_quote(arg: &str) -> String {
     if !arg.contains(CMD_METACHARS) {
         return arg.to_string();

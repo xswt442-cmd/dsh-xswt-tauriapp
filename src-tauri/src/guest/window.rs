@@ -30,8 +30,10 @@ const GEOMETRY_WRITE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Create the guest window and point it at the prepared session.
 ///
-/// Must run on the main thread: it builds a window. The cookie work has already
-/// happened by now (see the module docs).
+/// Must not run inside the webview's IPC callback: on Windows that is the one
+/// place a window build deadlocks (wry#583), which is why the command that
+/// reaches this is `async` and runs on a worker thread. The cookie work has
+/// already happened by now (see the module docs).
 pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
     if app.get_webview_window(GUEST_LABEL).is_some() {
         // An earlier hand-off already built it; nothing to do.
@@ -92,6 +94,12 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
         // the bootstrap window instead of as a broken dsh window.
         .visible(false)
         .background_color(tauri::window::Color(0x14, 0x14, 0x14, 0xff))
+        // This call, not the menu gate, is what decides whether a release build
+        // has an inspector at all: while the `devtools` Cargo feature is on, wry
+        // enables it for every window unless the builder says otherwise
+        // (`devtools.unwrap_or(true)`), so F12 and right-click → Inspect would
+        // work in production with no menu item to explain them.
+        .devtools(devtools_available())
         .on_navigation(move |url| {
             // A link that would replace dsh in the same webview opens in the
             // real browser instead — including one that points at another local
@@ -127,6 +135,17 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
     {
         Ok(window) => window,
         Err(error) => {
+            // A second hand-off that got here while the first was still building
+            // finds the label taken — the check above is not a lock. That is the
+            // same outcome arrived at twice, not a failure: the window exists,
+            // and the first caller's `Priming` is the one its load reports
+            // against. Resetting it here is what used to make a working window
+            // invisible, because `on_loaded` then declined to show it and `watch`
+            // stopped watching a hand-off that had not failed.
+            if app.get_webview_window(GUEST_LABEL).is_some() {
+                shell_log!("[dsh-harness] the other hand-off built the guest window");
+                return Ok(());
+            }
             // Nothing was primed if no window exists, and leaving `Priming`
             // behind would make `watch`'s deadline the next thing to report.
             if let Ok(mut guard) = shell.lock() {
@@ -320,8 +339,13 @@ pub fn reload(app: &AppHandle) {
 
 /// Whether the WebView inspector is reachable in this build.
 ///
-/// The `devtools` Cargo feature makes the API exist; this decides whether a user
-/// gets a menu item for it. A release build ships without it unless asked.
+/// On in a debug build; in a release build only where `DSH_SHELL_DEVTOOLS` is
+/// set. This is the one answer to that question: both builders take their
+/// `.devtools(...)` from it, so the gate that decides whether the inspector
+/// exists at runtime and the gate on the menu item cannot disagree. The Cargo
+/// `devtools` feature is on unconditionally because it only makes the API
+/// compile — without it an opted-in release build could not open DevTools even
+/// when asked.
 pub fn devtools_available() -> bool {
     cfg!(debug_assertions) || std::env::var_os("DSH_SHELL_DEVTOOLS").is_some()
 }

@@ -9,9 +9,13 @@
 //!   loopback port, because dsh names its session cookie after the whole
 //!   authority it was minted for.
 //!
-//! Everything that is not admitted is handed to the desktop's default handler.
+//! Everything that is not admitted is handed to the desktop's default handler —
+//! but only if [`open_external`] can tell that is safe to ask of it, which a
+//! `file:` URL cannot.
 
 use std::process::Command;
+
+use crate::shell_log;
 
 /// Whether `url` is the session this window was handed, and nothing else.
 ///
@@ -53,11 +57,41 @@ pub fn is_shell_asset(url: &tauri::Url) -> bool {
     }
 }
 
-/// Hand a URL to the desktop's default handler.
+/// Whether the desktop's opener may be handed `url` at all.
+///
+/// `file:` is the reason this list exists. The openers do not argue about what
+/// they are handed: `explorer` and `open` will run an executable named on the
+/// command line, and dsh writes files to disk, so a link naming one is a launch
+/// rather than a browse — and a model's output is where that link would come
+/// from. An unrecognised scheme is no better, because then the operating system
+/// picks the handler with nothing from here to constrain it.
+///
+/// `mailto:` is allowed because a dsh answer can legitimately carry one and no
+/// mail handler resolves to a path this shell would run. A refused link is
+/// dropped rather than opened somewhere unexpected, so the cost of a scheme
+/// missing here is one dead link, while the cost of one present by mistake is
+/// the whole machine.
+///
+/// Text that does not parse as a URL is refused with the rest: the callers hand
+/// this strings from a webview and from a release feed, and neither owes a
+/// well-formed address.
+pub fn is_openable(url: &str) -> bool {
+    match url.parse::<tauri::Url>() {
+        Ok(parsed) => matches!(parsed.scheme(), "http" | "https" | "mailto"),
+        Err(_) => false,
+    }
+}
+
+/// Hand a URL to the desktop's default handler, if its scheme says that is safe.
+///
+/// The gate lives here rather than at the call sites on purpose: every one of
+/// them is a webview callback fed by a page this shell does not own, and a
+/// choke point cannot be forgotten the way a rule each caller must remember can.
 ///
 /// Deliberately not `tauri-plugin-opener`: the whole shell only ever needs
-/// "open this http(s) URL", and a plugin would add a dependency, a capability
-/// entry and a permission surface for a few lines of work.
+/// "open this in the desktop's own handler", and a plugin would add a
+/// dependency, a capability entry and a permission surface for a few lines of
+/// work.
 ///
 /// Windows gets `explorer` rather than `cmd /C start`. `cmd` re-parses the
 /// string it is handed, and a URL is not a token: a `&` in a query string ends
@@ -69,9 +103,25 @@ pub fn is_shell_asset(url: &tauri::Url) -> bool {
 /// `explorer` takes the URL as its own argument and neither parses nor expands
 /// it; `open` and `xdg-open` already work that way.
 pub fn open_external(url: &str) {
-    let _ = Command::new(opener_for(std::env::consts::OS))
+    if !is_openable(url) {
+        // Said out loud rather than swallowed: a link that does nothing reads as
+        // a broken shell, and this is the only place that knows why.
+        shell_log!("[dsh-harness] refused to open this link: {url}");
+        return;
+    }
+    let Ok(mut child) = Command::new(opener_for(std::env::consts::OS))
         .arg(url)
-        .spawn();
+        .spawn()
+    else {
+        return;
+    };
+    // Waited for on a thread rather than here, because the caller is the webview's
+    // navigation callback and `xdg-open` may not answer until the browser is up.
+    // Nothing is learnt from the exit code — a link this refuses is refused above
+    // — but an unwaited child is a zombie per clicked link on Unix.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 /// Hand a verified installer to the desktop's opener, and say whether it went.
@@ -189,7 +239,7 @@ fn opener_for(os: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_session, is_shell_asset, opener_for, shell_execute_error};
+    use super::{is_openable, is_session, is_shell_asset, opener_for, shell_execute_error};
 
     fn url(value: &str) -> tauri::Url {
         value.parse().expect("test URL must parse")
@@ -244,6 +294,28 @@ mod tests {
         // One host, not a suffix: another `*.localhost` is somebody else's page.
         assert!(!is_shell_asset(&url("http://not-the-shell.localhost/")));
         assert!(!is_shell_asset(&url("https://github.com/deepseek-ai")));
+    }
+
+    #[test]
+    fn a_link_out_never_names_a_local_file() {
+        // `explorer` and `open` run what they are handed, so a link naming an
+        // executable is a launch — and dsh writes files to disk, so the path can
+        // come straight out of a model's answer. The rest are the schemes where
+        // the operating system, not this shell, would choose the handler.
+        assert!(is_openable("https://github.com/deepseek-ai"));
+        assert!(is_openable("http://127.0.0.1:3080/help"));
+        assert!(is_openable("mailto:a@b.c"));
+        assert!(!is_openable("file:///C:/Windows/System32/calc.exe"));
+        assert!(!is_openable("file:///etc/passwd"));
+        assert!(!is_openable("data:text/html,<script>alert(1)</script>"));
+        assert!(!is_openable("javascript:alert(1)"));
+        assert!(!is_openable("about:blank"));
+        // A UNC share is the quiet one: it opens in Explorer, and reaching a
+        // remote share leaks the credentials the platform already holds.
+        assert!(!is_openable("file://server/share/tool.exe"));
+        // Not a URL at all goes out the same door.
+        assert!(!is_openable("not a url at all"));
+        assert!(!is_openable(""));
     }
 
     #[test]

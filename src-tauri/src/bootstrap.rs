@@ -35,7 +35,12 @@ pub fn discover(app: AppHandle, shell: SharedShell) {
     std::thread::spawn(move || update::refresh_self(&self_app, &self_shell));
 
     let last_chosen = shell.lock().ok().and_then(|guard| guard.port_memory.last);
-    let plan = match server::plan(last_chosen) {
+    // One walk, both answers. This was `plan` followed by `known_ports`, which
+    // probed the same logged ports twice over on every cold start — and each
+    // entry probes twice inside `check_port` on its own, once to ask whether
+    // anything is listening and again inside the session resolver.
+    let surveyed = server::known_ports(&log_dir(), server::KNOWN_PORT_LIMIT);
+    let plan = match server::plan_with(last_chosen, &surveyed) {
         Ok(plan) => plan,
         Err(error) => {
             guest::retire(&app);
@@ -51,7 +56,7 @@ pub fn discover(app: AppHandle, shell: SharedShell) {
     // entry touches the network, and the shell's state must not be held across
     // that. The verdicts are `check_port`'s, which is the same answer the prompt
     // gives a typed port.
-    let known: Vec<PortVerdict> = server::known_ports(&log_dir(), server::KNOWN_PORT_LIMIT)
+    let known: Vec<PortVerdict> = surveyed
         .into_iter()
         .map(|known| PortVerdict {
             kind: state::kind_of(&known.choice),

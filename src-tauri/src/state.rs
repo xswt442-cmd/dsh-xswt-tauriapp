@@ -206,8 +206,6 @@ pub struct Shell {
     pub state: ShellState,
     /// The do-not-remind list.
     pub store: updates::DismissStore,
-    /// Where the do-not-remind list is persisted.
-    pub dismiss_path: Option<PathBuf>,
     /// The verified dsh session. Rust-only: see the module docs.
     pub session: Option<handshake::Session>,
     /// How far the guest window hand-off has got.
@@ -243,7 +241,6 @@ impl Default for Shell {
         Self {
             state: ShellState::default(),
             store: updates::DismissStore::default(),
-            dismiss_path: None,
             session: None,
             handoff: Handoff::default(),
             port_memory: ports::PortMemory::default(),
@@ -264,21 +261,28 @@ impl Default for Shell {
 pub type SharedShell = Arc<Mutex<Shell>>;
 
 /// The current snapshot, for the page to pull after it has attached listeners.
+///
+/// A poisoned lock is taken rather than worked around. The poison says a thread
+/// panicked while holding it, which is precisely when the page still needs an
+/// answer, and every field here is a whole value a panic can leave stale but
+/// never half-written. `unwrap_or_default` made that case look like a shell that
+/// had not started yet.
 pub fn snapshot(shell: &SharedShell) -> ShellState {
     shell
         .lock()
-        .map(|guard| guard.state.clone())
-        .unwrap_or_default()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .state
+        .clone()
 }
 
 /// Record and broadcast a progress line.
 pub fn set_message(app: &AppHandle, shell: &SharedShell, message: &str) {
-    let snap = match shell.lock() {
-        Ok(mut guard) => {
-            guard.state.message = message.to_string();
-            guard.state.clone()
-        }
-        Err(_) => return,
+    let snap = {
+        let mut guard = shell
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.state.message = message.to_string();
+        guard.state.clone()
     };
     let _ = app.emit(EVENT_STATUS, snap);
 }
@@ -294,15 +298,17 @@ pub fn set_message(app: &AppHandle, shell: &SharedShell, message: &str) {
 /// on each other.
 pub fn fail(app: &AppHandle, shell: &SharedShell, error: impl Into<String>) {
     let message = error.into();
-    let snap = match shell.lock() {
-        Ok(mut guard) => {
-            guard.handoff = Handoff::Failed;
-            guard.state.phase = Phase::Failed;
-            guard.state.message = "启动失败".into();
-            guard.state.error = Some(message.clone());
-            guard.state.clone()
-        }
-        Err(_) => return,
+    let snap = {
+        // The one report that must not be dropped on a poisoned lock: a panic in
+        // another thread is a failure, and this is the function that says so.
+        let mut guard = shell
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.handoff = Handoff::Failed;
+        guard.state.phase = Phase::Failed;
+        guard.state.message = "启动失败".into();
+        guard.state.error = Some(message.clone());
+        guard.state.clone()
     };
     crate::shell_log!("[dsh-harness] failed: {message}");
     let _ = app.emit(EVENT_ERROR, snap);

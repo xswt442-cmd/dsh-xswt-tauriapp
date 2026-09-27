@@ -31,6 +31,8 @@
 //! * [`geometry`] — the same question about the guest window's own shape: where
 //!   it was, whether that is still a place a window can be put, and the file it
 //!   is remembered in.
+//! * [`store`] — how the four memories above are written: one JSON document,
+//!   renamed into place so a reader can never meet half of one.
 
 pub mod console;
 pub mod geometry;
@@ -41,5 +43,6 @@ pub mod paths;
 pub mod ports;
 pub mod self_update;
 pub mod server;
+pub mod store;
 pub mod updates;
 pub mod zoom;

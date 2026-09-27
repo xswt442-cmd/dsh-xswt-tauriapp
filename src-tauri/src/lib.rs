@@ -71,6 +71,9 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
     // glow, so the hand-over from the OS fill to the rendered gradient is not a
     // visible step.
     .background_color(tauri::window::Color(0x17, 0x1b, 0x28, 0xff))
+    // The same rule as the guest's: the inspector exists only where this says it
+    // does, so a release build's DevTools are opt-in on both windows.
+    .devtools(guest::devtools_available())
     .on_navigation(|url| {
         // This window carries the only capability, so its policy is its own and
         // narrower than the guest's: the bundled assets, nothing else. A loopback
@@ -199,7 +202,6 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
             ..Default::default()
         },
         store,
-        dismiss_path,
         port_memory,
         self_dismiss,
         zoom: zoom_factor,
@@ -311,14 +313,10 @@ pub fn run() {
             commands::page_diag,
             commands::check_updates,
             commands::dismiss_version,
-            commands::check_self_update,
             commands::dismiss_self_version,
             commands::apply_self_update,
-            commands::clear_dismissed,
-            commands::dismissed_versions,
             commands::apply_update,
             commands::restart_app,
-            commands::dismiss_path,
         ])
         .on_window_event(|window, event| match event {
             WindowEvent::Focused(focused) => {

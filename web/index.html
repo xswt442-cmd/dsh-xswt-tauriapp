@@ -16,8 +16,11 @@
              to be drawn large enough for them to survive — hence the size below. -->
         <div class="brand-mark"><img src="whale.png" alt="DeepSeek Harness" /></div>
         <h1>DeepSeek Harness</h1>
-        <p id="splash-message" class="muted">正在启动…</p>
-        <div class="spinner" role="status" aria-live="polite"></div>
+        <!-- The live region sits on the words that change, not on the spinner:
+             an empty element has nothing to announce, and every progress line the
+             shell sends went through this one in silence. -->
+        <p id="splash-message" class="muted" aria-live="polite" aria-atomic="true">正在启动…</p>
+        <div class="spinner" aria-hidden="true"></div>
       </div>
     </main>
 
@@ -26,9 +29,12 @@
       <div class="brand">
         <div class="brand-mark error">!</div>
         <h1>启动失败</h1>
-        <pre id="failure-message" class="error-box"></pre>
+        <pre id="failure-message" class="error-box" role="alert"></pre>
         <div class="row">
-          <button id="btn-retry" class="primary">重试</button>
+          <!-- Two different gestures: 重试启动 repeats the request this page made,
+               in this process; 重启应用 is the one that throws the process away,
+               which is also the only way discovery runs again. -->
+          <button id="btn-retry" class="primary">重试启动</button>
           <button id="btn-restart" class="ghost">重启应用</button>
         </div>
         <p class="muted small">
@@ -69,7 +75,7 @@
           </span>
         </div>
 
-        <p id="check-error" class="error-inline hidden"></p>
+        <p id="check-error" class="error-inline hidden" role="alert"></p>
 
         <div id="channels" class="channels"></div>
 
@@ -88,7 +94,7 @@
           />
           <div class="port-notes">
             <p id="port-hint" class="muted small"></p>
-            <p id="port-error" class="error-inline hidden"></p>
+            <p id="port-error" class="error-inline hidden" role="alert"></p>
           </div>
         </div>
 
@@ -109,8 +115,8 @@
         </footer>
 
         <div id="progress" class="progress hidden">
-          <div class="spinner small"></div>
-          <span id="progress-text">正在更新…</span>
+          <div class="spinner small" aria-hidden="true"></div>
+          <span id="progress-text" aria-live="polite" aria-atomic="true">正在更新…</span>
         </div>
       </section>
     </main>

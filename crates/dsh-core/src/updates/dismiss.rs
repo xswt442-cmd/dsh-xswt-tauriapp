@@ -37,17 +37,12 @@ impl DismissStore {
         store
     }
 
-    /// Persist the list, creating parent directories as needed.
+    /// Persist the list. See [`crate::store`] for what "persist" guarantees.
     pub fn save(&self) -> Result<(), String> {
         let Some(path) = &self.path else {
             return Ok(());
         };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("创建目录失败：{error}"))?;
-        }
-        let text =
-            serde_json::to_string_pretty(self).map_err(|error| format!("序列化失败：{error}"))?;
-        std::fs::write(path, text).map_err(|error| format!("写入失败：{error}"))
+        crate::store::write_json(path, self)
     }
 
     /// Whether `version` is on the list.

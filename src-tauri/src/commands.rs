@@ -8,9 +8,7 @@
 use dsh_xswt_tauriapp_core::server;
 use tauri::{AppHandle, State};
 
-use crate::state::{
-    self, kind_of, PortVerdict, SelfUpdatePayload, SharedShell, ShellState, UpdatePayload,
-};
+use crate::state::{self, kind_of, PortVerdict, SharedShell, ShellState, UpdatePayload};
 use crate::update;
 use crate::{bootstrap, guest, shell_log};
 
@@ -103,16 +101,6 @@ pub async fn check_updates(
     Ok(update::refresh(&app, &shared))
 }
 
-/// Re-run the check for a newer build of this application.
-#[tauri::command]
-pub async fn check_self_update(
-    app: AppHandle,
-    shell: State<'_, SharedShell>,
-) -> Result<SelfUpdatePayload, String> {
-    let shared = shell.inner().clone();
-    Ok(update::refresh_self(&app, &shared))
-}
-
 /// Stop reminding about one build of this application.
 ///
 /// A separate command from `dismiss_version`, and a separate store behind it:
@@ -159,26 +147,6 @@ pub fn dismiss_version(
     Ok(guard.state.clone())
 }
 
-/// Forget every do-not-remind entry.
-#[tauri::command]
-pub fn clear_dismissed(shell: State<'_, SharedShell>) -> Result<ShellState, String> {
-    let mut guard = shell.lock().map_err(|_| "状态锁不可用".to_string())?;
-    guard.store.clear()?;
-    if let Some(report) = guard.state.update.as_mut() {
-        report.candidate_dismissed = false;
-    }
-    Ok(guard.state.clone())
-}
-
-/// The versions currently on the do-not-remind list.
-#[tauri::command]
-pub fn dismissed_versions(shell: State<'_, SharedShell>) -> Vec<String> {
-    shell
-        .lock()
-        .map(|guard| guard.store.dismissed.clone())
-        .unwrap_or_default()
-}
-
 /// Install one dsh version globally, then restart so the new launcher is used.
 ///
 /// `async` for the same reason, and `spawn_blocking` on top of it: `npm install
@@ -196,15 +164,6 @@ pub async fn apply_update(app: AppHandle, version: String) -> Result<(), String>
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
     app.restart()
-}
-
-/// Where the do-not-remind list lives, for display in the UI.
-#[tauri::command]
-pub fn dismiss_path(shell: State<'_, SharedShell>) -> Option<String> {
-    shell
-        .lock()
-        .ok()
-        .and_then(|guard| guard.dismiss_path.as_ref().map(|p| p.display().to_string()))
 }
 
 /// Diagnostics relayed from the bootstrap page's own error handlers.

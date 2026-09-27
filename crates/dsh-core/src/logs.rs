@@ -34,7 +34,12 @@ pub fn err_path(dir: &Path, port: u16) -> PathBuf {
 
 /// The startup token for `port`, read from the tail of its server log.
 ///
-/// Only the tail matters: the newest entry for the port is the live token.
+/// Only the tail matters, because that is where a token a server just printed
+/// sits. It is *a* token, not necessarily this run's: the newest match in the
+/// tail is whatever was written for the port last, which a previous run on the
+/// same port also did. [`token_since`] is the question that needs an answer per
+/// launch — "did *this* run write one" — and the byte offset is what makes the
+/// evidence this run's.
 pub fn token_from_log(dir: &Path, port: u16) -> Option<String> {
     let mut handle = fs::File::open(out_path(dir, port)).ok()?;
     let len = handle.metadata().ok()?.len();
@@ -59,8 +64,14 @@ pub fn token_from_log(dir: &Path, port: u16) -> Option<String> {
 /// begins at a byte offset, which is how [`token_since`] answers "did *this*
 /// run write one".
 pub fn token_in(text: &str, port: u16) -> Option<String> {
-    // `dsh web: http://127.0.0.1:<port>/?token=<token>`
-    let re = regex::Regex::new(r"dsh web:\s+http://127\.0\.0\.1:(\d+)/\?token=(\S+)").ok()?;
+    // `dsh web: http://127.0.0.1:<port>/?token=<token>`, built once: this reads a
+    // 256 KiB tail on every poll of [`crate::launch::wait_for_ui`], and a pattern
+    // that cannot change is not worth compiling twice a second.
+    static TOKEN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = TOKEN.get_or_init(|| {
+        regex::Regex::new(r"dsh web:\s+http://127\.0\.0\.1:(\d+)/\?token=(\S+)")
+            .expect("the token pattern compiles")
+    });
     re.captures_iter(text)
         .filter(|cap| cap[1].parse::<u16>() == Ok(port))
         .last()

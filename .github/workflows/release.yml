@@ -246,6 +246,34 @@ jobs:
           name: plugin-tarball
           path: dist
 
+      # The updaters choose an installer by its suffix, and the list of suffixes
+      # lives in `self_update.rs` — so this reads that list rather than keeping a
+      # third copy of it. A renamed `productName`, a bundle leg that quietly
+      # produced nothing, or a suffix added on one side only all used to go green
+      # here, and then the dialog printed an `apt install` line for a file nobody
+      # attached. A `sed` that finds nothing means the array changed shape, which
+      # is this step failing on purpose rather than the check passing vacuously.
+      - name: the artifacts are what the updaters will ask for
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffixes="$(sed -n 's/^const INSTALLER_SUFFIXES: \[&str; [0-9]*\] = \[//p' \
+            crates/dsh-core/src/self_update.rs | tr ',' '\n' | tr -d ' "];' | sed '/^$/d')"
+          if [ -z "$suffixes" ]; then
+            echo "::error::could not read INSTALLER_SUFFIXES from crates/dsh-core/src/self_update.rs"
+            exit 1
+          fi
+          short=0
+          for suffix in $suffixes; do
+            found="$(find dist -maxdepth 1 -type f -name "*${suffix}" | wc -l)"
+            case "$found" in
+              1) echo "one artifact ends in ${suffix}" ;;
+              0) echo "::error::nothing ends in ${suffix}, which is what the updaters select"; short=1 ;;
+              *) echo "::error::${found} artifacts end in ${suffix}; a selector taking the first would be a coin toss"; short=1 ;;
+            esac
+          done
+          [ "$short" -eq 0 ] || exit 1
+
       - name: checksums
         shell: bash
         run: |

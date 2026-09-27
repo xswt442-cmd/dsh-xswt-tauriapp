@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use crate::handshake::{http_get, resolve_session, Session, AUTH_REQUIRED};
+use crate::handshake::{http_get, resolve_session, Session};
 use crate::launch::{spawn_server, wait_for_ui, Launch, SpawnSpec};
 use crate::logs::logged_ports;
 use crate::paths::log_dir;
@@ -21,10 +21,18 @@ use crate::ports::{
 
 /// The first dsh web session already running, if any.
 ///
-/// Candidates come from [`logged_ports`] rather than the whole 3080–3129 band.
+/// Candidates come from [`logged_ports`] rather than the whole 3080–3129 band,
+/// bounded by the same [`KNOWN_PORT_LIMIT`] the dialog offers. Each candidate is
+/// walked serially and one that is listening-but-not-enterable costs its full
+/// share of HTTP timeouts, so an uncapped walk of a directory nothing prunes puts
+/// all of that in front of the window the user is waiting for. [`crate::logs::LOG_PORT_MAX_AGE`]
+/// already drops the ancient logs; this is the other half of the bound, and it is
+/// the same set of ports either way — a server the dialog cannot offer is not one
+/// this would have entered either.
 pub fn find_running_session() -> Option<Session> {
     logged_ports(&log_dir())
         .into_iter()
+        .take(KNOWN_PORT_LIMIT)
         .find_map(resolve_session)
 }
 
@@ -65,10 +73,20 @@ pub fn check_port(port: u16) -> PortChoice {
     if let Some(session) = resolve_session(port) {
         return PortChoice::Reuse(session);
     }
-    // Listening, but not enterable. Ask once more whether what is there at least
-    // *is* a dsh, so the two cases can be told apart in the dialog.
+    // Listening, but not enterable. Ask once more whether it is asking for
+    // authentication at all, because that is the difference between a dsh whose
+    // token lives somewhere this shell cannot reach and some other program that
+    // happens to own the port.
+    //
+    // The status code is the whole test. It used to also want the English
+    // `dsh web authentication required` in the body, which meant a localised dsh
+    // was reported as `Occupied` — the one word AGENTS.md rules out for exactly
+    // this case, because "occupied" tells whoever started it that there is a bug.
+    // Reading the status alone can call another service's 401 a foreign dsh;
+    // guessing wrong that way still points the user at the port that answers,
+    // which is the more useful of the two mistakes.
     let probe = http_get(port, "/", None);
-    if probe.status == 401 && probe.body.contains(AUTH_REQUIRED) {
+    if probe.status == 401 {
         PortChoice::Foreign
     } else {
         PortChoice::Occupied
@@ -126,11 +144,25 @@ pub struct Plan {
 /// does not mean asking for it on every launch — but only while it is still
 /// free, since a suggestion that cannot be used is worse than the default.
 pub fn plan(last_chosen: Option<u16>) -> Result<Plan, String> {
-    let running = find_running_session();
-    if let Some(session) = &running {
+    plan_with(last_chosen, &known_ports(&log_dir(), KNOWN_PORT_LIMIT))
+}
+
+/// [`plan`] for a caller that has already surveyed the ports.
+///
+/// The shell walks the logged ports once to fill the dialog's list, and used to
+/// call [`plan`] on top of that: the same six ports were then probed twice over,
+/// three of them by a handshake that had just been run. Reading the answer out of
+/// the survey costs nothing and cannot disagree with what the list shows — the
+/// running server *is* the first entry the survey calls `Reuse`.
+pub fn plan_with(last_chosen: Option<u16>, known: &[KnownPort]) -> Result<Plan, String> {
+    if let Some(session) = known.iter().find_map(|port| match &port.choice {
+        PortChoice::Reuse(session) => Some(session.clone()),
+        _ => None,
+    }) {
+        let port = session.port;
         return Ok(Plan {
-            running: running.clone(),
-            suggested_port: session.port,
+            running: Some(session),
+            suggested_port: port,
         });
     }
     let suggested_port = last_chosen
