@@ -21,10 +21,18 @@ use crate::ports::{
 
 /// The first dsh web session already running, if any.
 ///
-/// Candidates come from [`logged_ports`] rather than the whole 3080–3129 band.
+/// Candidates come from [`logged_ports`] rather than the whole 3080–3129 band,
+/// bounded by the same [`KNOWN_PORT_LIMIT`] the dialog offers. Each candidate is
+/// walked serially and one that is listening-but-not-enterable costs its full
+/// share of HTTP timeouts, so an uncapped walk of a directory nothing prunes puts
+/// all of that in front of the window the user is waiting for. [`crate::logs::LOG_PORT_MAX_AGE`]
+/// already drops the ancient logs; this is the other half of the bound, and it is
+/// the same set of ports either way — a server the dialog cannot offer is not one
+/// this would have entered either.
 pub fn find_running_session() -> Option<Session> {
     logged_ports(&log_dir())
         .into_iter()
+        .take(KNOWN_PORT_LIMIT)
         .find_map(resolve_session)
 }
 

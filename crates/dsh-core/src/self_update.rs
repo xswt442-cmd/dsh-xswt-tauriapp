@@ -40,6 +40,12 @@ const ASSET_PREFIX: &str = "dsh-xswt-tauriapp";
 /// list must cover everything [`installer_suffixes`] can return — a test holds
 /// the two together rather than a comment.
 const INSTALLER_SUFFIXES: [&str; 4] = ["_x64-setup.exe", "_x64.dmg", "_aarch64.dmg", "_amd64.deb"];
+/// The tail on the name an installer is written under before it is complete.
+///
+/// A download is moved into its real name once it has been verified, so the name
+/// the release page tells the user to install is never the name of a half-written
+/// file. [`prune_installers`] recognises the strays and removes them.
+const PARTIAL_SUFFIX: &str = ".part";
 
 /// One file attached to a release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -136,6 +142,24 @@ pub fn pick_checksums(assets: &[Asset]) -> Option<Asset> {
         .cloned()
 }
 
+/// Whether `name` is safe to reuse as the name of a file we write.
+///
+/// Asset names arrive over the network, and this one is used twice over: as a
+/// path component under the cache directory, and as the key looked up in
+/// `SHA256SUMS`. A name carrying a separator therefore escapes the directory
+/// *and* verifies itself on the way out, so the checksum catches nothing. The
+/// separator checks are spelled rather than left to [`std::path`], because a
+/// Windows-style name has to be judged on the machine that is reading it — and
+/// `:` is how a drive or an alternate data stream hides inside what looks like a
+/// plain name.
+pub fn is_bare_file_name(name: &str) -> bool {
+    !name.contains(['/', '\\', ':', '\0'])
+        && !name.chars().any(char::is_control)
+        && std::path::Path::new(name)
+            .file_name()
+            .is_some_and(|last| last == name)
+}
+
 /// Whether `release` is newer than `current`, and what would be done about it.
 ///
 /// Both sides must parse as semver, and that is the point: [`crate::updates`]
@@ -143,6 +167,20 @@ pub fn pick_checksums(assets: &[Asset]) -> Option<Asset> {
 /// which is the right guess for a version feed and the wrong one for an
 /// updater. Here an unorderable tag means "do not offer anything".
 pub fn available(current: &str, release: &Release) -> Option<Available> {
+    available_on(
+        current,
+        release,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
+}
+
+/// [`available`] with the machine named rather than read from this build.
+///
+/// Split out because which installer a release offers is the part worth pinning,
+/// and a test that inherited the host's `os` and `arch` could only ever assert
+/// about the machine it ran on.
+pub fn available_on(current: &str, release: &Release, os: &str, arch: &str) -> Option<Available> {
     let candidate = semver::Version::parse(&normalise_version(&release.version)).ok()?;
     let installed = semver::Version::parse(&normalise_version(current)).ok()?;
     if candidate <= installed {
@@ -151,11 +189,7 @@ pub fn available(current: &str, release: &Release) -> Option<Available> {
     Some(Available {
         version: release.version.clone(),
         page: release.page.clone(),
-        installer: pick_installer(
-            &release.assets,
-            std::env::consts::OS,
-            std::env::consts::ARCH,
-        ),
+        installer: pick_installer(&release.assets, os, arch),
         checksums: pick_checksums(&release.assets),
     })
 }
@@ -195,7 +229,12 @@ pub fn parse_latest(body: &str) -> Result<Release, String> {
     let assets = parsed
         .assets
         .into_iter()
-        .filter(|asset| !asset.name.is_empty() && !asset.browser_download_url.is_empty())
+        // An asset whose name is not a bare file name is dropped on the way in,
+        // not worked around at the one place that writes: the name is also the
+        // `SHA256SUMS` key, so letting it through would let it choose where it
+        // lands and then vouch for itself. A release with nothing installable left
+        // simply offers nothing, which is what a refused download is for.
+        .filter(|asset| is_bare_file_name(&asset.name) && !asset.browser_download_url.is_empty())
         .map(|asset| Asset {
             name: asset.name,
             url: asset.browser_download_url,
@@ -259,6 +298,21 @@ pub fn fallback_downloads_dir() -> PathBuf {
     downloads_dir(&std::env::temp_dir().join(ASSET_PREFIX))
 }
 
+/// Whether `name` is one of this application's own installers.
+///
+/// Recognised by both the prefix every bundle shares and the platform suffix it
+/// ends in, so a `notes.txt` left in the download directory, or the marketplace's
+/// plugin tarball beside it, is never a file this deletes. The written-under
+/// [`PARTIAL_SUFFIX`] name counts: it is ours, it is incomplete by definition,
+/// and nothing will ever open it.
+fn is_our_installer(name: &str) -> bool {
+    let stem = name.strip_suffix(PARTIAL_SUFFIX).unwrap_or(name);
+    name.starts_with(ASSET_PREFIX)
+        && INSTALLER_SUFFIXES
+            .iter()
+            .any(|suffix| stem.ends_with(suffix))
+}
+
 /// Remove the installers in `dir` that are not `keep`, returning what went.
 ///
 /// The directory outlives the session now, so without this it would collect one
@@ -277,10 +331,7 @@ pub fn prune_installers(dir: &Path, keep: &str) -> Vec<PathBuf> {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        let ours = name.starts_with(ASSET_PREFIX)
-            && INSTALLER_SUFFIXES
-                .iter()
-                .any(|suffix| name.ends_with(suffix));
+        let ours = is_our_installer(&name);
         if name == keep || !ours {
             continue;
         }
@@ -367,9 +418,19 @@ pub fn download_installer(
     }
 
     std::fs::create_dir_all(dir).map_err(|error| format!("创建下载目录失败：{error}"))?;
+    // Written under [`PARTIAL_SUFFIX`] and moved into place only once the bytes
+    // are whole. `fs::write` truncates its target before it starts, so writing
+    // straight to the final name left an interrupted download sitting at exactly
+    // the path the Linux dialog prints as the `sudo apt install` argument — a
+    // half installer that reads as a working one until it is run.
     let path = dir.join(&installer.name);
-    std::fs::write(&path, &bytes)
-        .map_err(|error| format!("写入 {} 失败：{error}", path.display()))?;
+    let part = dir.join(format!("{}{PARTIAL_SUFFIX}", installer.name));
+    std::fs::write(&part, &bytes)
+        .map_err(|error| format!("写入 {} 失败：{error}", part.display()))?;
+    std::fs::rename(&part, &path).map_err(|error| {
+        let _ = std::fs::remove_file(&part);
+        format!("无法完成 {} 的写入：{error}", path.display())
+    })?;
     Ok(path)
 }
 
@@ -424,12 +485,62 @@ mod tests {
                 "SHA256SUMS",
             ],
         );
-        let offered = available("0.0.7", &latest).expect("0.0.8 is newer than 0.0.7");
-        assert_eq!(offered.version, "0.0.8");
+        // The machine is named rather than read from this build, because which
+        // file gets downloaded is the half the user acts on — and a test that
+        // inherited `std::env::consts` could only ever assert about the host it
+        // happened to run on.
+        let linux = available_on("0.0.7", &latest, "linux", "x86_64").expect("0.0.8 is newer");
+        assert_eq!(linux.version, "0.0.8");
         assert_eq!(
-            offered.checksums.as_ref().map(|asset| asset.name.as_str()),
+            linux.installer.as_ref().map(|asset| asset.name.as_str()),
+            Some("dsh-xswt-tauriapp_0.0.8_amd64.deb")
+        );
+        assert_eq!(
+            linux.checksums.as_ref().map(|asset| asset.name.as_str()),
             Some("SHA256SUMS")
         );
+        let windows = available_on("0.0.7", &latest, "windows", "x86_64").expect("newer");
+        assert_eq!(
+            windows.installer.as_ref().map(|asset| asset.name.as_str()),
+            Some("dsh-xswt-tauriapp_0.0.8_x64-setup.exe")
+        );
+        // A platform no bundle is built for is still a newer version, so the
+        // dialog still says so and points at the release page. It must not name a
+        // file it cannot open.
+        let elsewhere = available_on("0.0.7", &latest, "plan9", "riscv").expect("still newer");
+        assert!(elsewhere.installer.is_none());
+        assert!(elsewhere.page.starts_with("http"));
+    }
+
+    #[test]
+    fn an_asset_name_that_is_not_a_file_name_is_no_installer() {
+        // The name is a path component *and* the key looked up in `SHA256SUMS`, so
+        // one carrying a separator would write outside the cache directory and
+        // then vouch for itself. GitHub's own answer never contains one, but
+        // `DSH_SHELL_RELEASES_API` is a documented input, and so is any fork of it.
+        assert!(is_bare_file_name("dsh-xswt-tauriapp_0.0.8_amd64.deb"));
+        assert!(!is_bare_file_name(""));
+        assert!(!is_bare_file_name("."));
+        assert!(!is_bare_file_name(".."));
+        assert!(!is_bare_file_name("../../escape.deb"));
+        assert!(!is_bare_file_name("..\\escape.deb"));
+        assert!(!is_bare_file_name("/absolute.deb"));
+        assert!(!is_bare_file_name("C:\\Windows\\setup.exe"));
+        assert!(!is_bare_file_name("with\0nul.deb"));
+        assert!(!is_bare_file_name("a/b"));
+
+        let body = r#"{"tag_name":"v0.0.8","html_url":"https://example.invalid/0.0.8","assets":[
+            {"name":"../../evil_amd64.deb","browser_download_url":"https://example.invalid/evil"},
+            {"name":"good_amd64.deb","browser_download_url":"https://example.invalid/good"}]}"#;
+        let parsed = parse_latest(body).expect("the answer parses");
+        let names: Vec<&str> = parsed
+            .assets
+            .iter()
+            .map(|asset| asset.name.as_str())
+            .collect();
+        // The traversal-shaped name ends in the suffix a real installer ends in,
+        // so only the name check — not the suffix match — is what drops it.
+        assert_eq!(names, ["good_amd64.deb"]);
     }
 
     #[test]
@@ -562,16 +673,28 @@ mod tests {
         let kept = dir.path().join("dsh-xswt-tauriapp_0.0.12_amd64.deb");
         let foreign = dir.path().join("notes.txt");
         let tarball = dir.path().join("dsh-xswt-tauriapp-plugin.tgz");
-        for path in [&older, &kept, &foreign, &tarball] {
+        // An interrupted download leaves this behind: written under the `.part`
+        // name, never renamed, and nothing will ever open it. Somebody else's
+        // half-written file is still somebody else's.
+        let stray = dir.path().join("dsh-xswt-tauriapp_0.0.10_amd64.deb.part");
+        let foreign_part = dir.path().join("somebody-else_amd64.deb.part");
+        for path in [&older, &kept, &foreign, &tarball, &stray, &foreign_part] {
             std::fs::write(path, b"x").expect("write");
         }
 
         let removed = prune_installers(dir.path(), "dsh-xswt-tauriapp_0.0.12_amd64.deb");
 
-        assert_eq!(removed, vec![older.clone()]);
+        assert_eq!(removed.len(), 2, "the superseded installer and the stray");
+        assert!(removed.contains(&older), "{removed:?}");
+        assert!(removed.contains(&stray), "{removed:?}");
         assert!(!older.exists(), "the superseded installer is gone");
+        assert!(!stray.exists(), "a half download is ours to clear");
         assert!(kept.exists(), "the one just verified stays");
         assert!(foreign.exists(), "a file of somebody else's is not touched");
+        assert!(
+            foreign_part.exists(),
+            "a partial name without our prefix is not ours either"
+        );
         assert!(
             tarball.exists(),
             "the marketplace's plugin tarball is not an installer"

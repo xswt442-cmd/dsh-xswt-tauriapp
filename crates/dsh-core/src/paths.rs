@@ -53,8 +53,12 @@ pub fn log_dir() -> PathBuf {
 
 /// File names a `node` executable may have, most likely first.
 ///
-/// Windows PATH entries point at `node.exe`, so probing the bare name there
-/// would never match.
+/// Windows PATH entries point at `node.exe`, so the bare name is a fallback
+/// rather than the first hope — and it is reachable: an MSYS or Git-Bash `bin`
+/// directory carries an extensionless `node` that `is_file()` accepts and
+/// `CreateProcess` refuses with the same error 193 [`NPM_EXE_NAMES`] describes.
+/// It stays last because a machine with only that one is a machine where the
+/// alternative is no node at all.
 pub const NODE_EXE_NAMES: &[&str] = if cfg!(windows) {
     &["node.exe", "node"]
 } else {
