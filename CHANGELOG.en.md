@@ -11,6 +11,9 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- A mixed-encoding console capture is decoded line by line: one pair of OEM bytes used to drag the whole buffer through the code page, including npm's own UTF-8 Chinese a few lines above it, and what came back was valid text in the wrong language.
+- A poisoned state lock no longer swallows the failure report. `fail()` returned on `Err`, which is exactly the moment another thread has just panicked and the user most needs to be told why nothing came up; `snapshot()` stops falling back to "not started yet".
+- A server that answers the token request with the UI *and* sets a cookie now has that cookie carried into the hand-off, instead of the guest being handed a session it cannot open.
 - Deciding "this is a dsh whose session you cannot enter from here" now reads the HTTP 401 alone, without also wanting that English phrase in the response body: a localised dsh used to fall through to "port occupied", which is exactly the wording that reads as a bug to whoever started it.
 - An install reached through a profile's symlink farm (`$DSH_HOME/profiles/<name>/node_modules/.bin/dsh`) no longer reports an update on every launch: the installed version resolves the launcher through its symlinks before walking up to `package.json`, and when it still cannot be found nothing is offered. It used to look one directory up from `.bin`, then substitute `0.0.0` for "unknown" — which every stable release beats, while the dialog told you that you were running 0.0.0.
 - A `DSH_HOME` that points somewhere not yet existing is honoured as written instead of silently falling back to `~/.dsh`. The fallback found nothing (no token, no port candidate) and the start path then helpfully created it — a second tree, and a server in it nobody asked for, beside the one the user aims dsh at.
