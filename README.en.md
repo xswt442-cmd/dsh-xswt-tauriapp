@@ -43,7 +43,7 @@ The [marketplace](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) entr
 dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
 ```
 
-On the **first** dsh start after installing it, the stub reads this repository's latest release, picks the installer for this platform, fetches `SHA256SUMS` and only writes the file once its digest matches, then hands it to the system installer. A machine that already has the shell, or one with no desktop session (CI, or Linux without `DISPLAY`), is only told where to look. It installs nothing silently and imports no harness API, so it cannot become the reason a harness fails to start.
+On the **first** dsh start after installing it, the stub reads this repository's latest release, picks the installer for this platform, fetches `SHA256SUMS` and only writes the file once its digest matches, then hands it to the system installer. A machine that already has the shell, or one with no desktop session (CI, or Linux without `DISPLAY`), is only told where to look. The stub reads four variables of its own: `DSH_TAURIAPP_MODE` accepts only `auto`, `notice` and `off`, so anything else is as if unset and the plugin's own config decides; `DSH_TAURIAPP_FORCE=1` makes it download again after having offered once already (only `1` counts, and `notice` mode still only points at the release); `DSH_TAURIAPP_NO_OPEN=1` stops it at the moment it would hand the file over and prints the command to run instead, `1` again being the only value that does; `DSH_TAURIAPP_RELEASES_API` overrides the release endpoint when non-empty. Its state file and the installers it downloads live under `$DSH_HOME` — there the stub only asks that the variable be non-empty, unlike the shell's Rust code, which also wants that directory to exist. It installs nothing silently and imports no harness API, so it cannot become the reason a harness fails to start.
 
 ### From a release
 
@@ -73,15 +73,16 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 
 | Variable | Effect |
 |---|---|
-| `DSH_HOME` | DSH home directory; defaults to `~/.dsh` |
-| `DSH_BIN` | Points directly at dsh's `lib/bin.js` |
-| `DSH_NODE_BIN` | Points directly at the `node` executable |
-| `DSH_TAURI_REGISTRY` | Overrides the version endpoint; defaults to the npm registry |
-| `DSH_SHELL_ALLOW_MULTIPLE` | When non-empty, several shells may run at once; by default a second launch only raises the one already running |
-| `DSH_SHELL_DEBUG` | When non-empty, logs the hand-off, navigation and update checks |
-| `DSH_SHELL_DEVTOOLS` | When non-empty, offers DevTools in the menu (debug builds already do) |
-| `DSH_SHELL_ZOOM` | The dsh window's initial zoom factor (0.3–3.0), which wins over the remembered one |
-| `DSH_SHELL_WAYLAND` | On Linux, do not switch to the X11 backend (see "Menus, tray and shortcuts") |
+| `DSH_HOME` | The DSH home directory; used only when it is non-empty and really names an existing directory, otherwise `~/.dsh` (the home itself comes from `HOME`, or from `USERPROFILE` on Windows) |
+| `DSH_BIN` | When non-empty, the first candidate for dsh's `lib/bin.js`; when that file is not there, the `$DSH_HOME/profiles`, `npm_config_prefix` and `PATH` candidates are still tried |
+| `DSH_NODE_BIN` | When non-empty, a candidate for the `node` executable, ahead of `PATH` — but the node that owns the installed dsh wins whenever that node is there |
+| `DSH_TAURI_REGISTRY` | Overrides the version endpoint when non-empty; the npm registry otherwise |
+| `DSH_SHELL_RELEASES_API` | Overrides the GitHub Releases API this application's own updater reads when non-empty; this repository's `releases/latest` otherwise. For tests and mirrors |
+| `DSH_SHELL_ALLOW_MULTIPLE` | Setting it at all lets several shells run at once — an empty value and `0` both count as set; by default a second launch only raises the one already running |
+| `DSH_SHELL_DEBUG` | Setting it at all, even to an empty value, writes the hand-off, navigation and update-check log to stderr; a debug build always does |
+| `DSH_SHELL_DEVTOOLS` | Setting it at all, even to an empty value, gives a release build its DevTools; a debug build needs nothing (see "Menus, tray and shortcuts") |
+| `DSH_SHELL_ZOOM` | The dsh window's initial zoom factor, which wins over the remembered one: it has to parse as a number above `0` (an empty value, `0` and a typo are all ignored, leaving the remembered factor), and an out-of-range one is clamped to 0.3–3.0 |
+| `DSH_SHELL_WAYLAND` | On Linux, setting it at all stops the switch to the X11 backend (see "Menus, tray and shortcuts") — `0` opts out just as much as `1`, which is only the convention; an explicit `GDK_BACKEND` is left alone the same way |
 
 ## How it works
 
@@ -121,6 +122,8 @@ Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/se
 
 dsh's session cookie is `SameSite=Strict`, and a navigation started by a page at another origin does not carry it — which is why navigating the shell page to dsh stops on dsh's 401 text. The shell keeps dsh's security semantics and changes the order instead: Rust completes the handshake and writes the cookie into the cookie store first, and only then builds the dsh window on `http://127.0.0.1:<port>/`. That window's first navigation is started by the host with no initiating page, so it is not a cross-site request.
 
+A link that leaves the dsh page goes to the desktop's default handler, but only `http:`, `https:` and `mailto:` are ever handed over: a `file:` link is refused, because `explorer` and `open` do not argue about what they are handed — an executable named on the command line is run — and dsh writes files to disk, so a link to one is a launch rather than a browse. Text that does not parse as a URL is refused with the rest. A refused link just stays dead where it is instead of opening somewhere unexpected, and the reason reaches the shell's log (see `DSH_SHELL_DEBUG` under "Menus, tray and shortcuts").
+
 ### Menus, tray and shortcuts
 
 | Platform | Shape |
@@ -130,11 +133,13 @@ dsh's session cookie is `SameSite=Strict`, and a navigation started by a page at
 
 Tauri can bind a keyboard shortcut only through a menu accelerator, and on Windows and Linux a menu attached to a window *is* a visible menu bar. Those platforms therefore use global shortcuts, registered only while one of the shell's windows has focus and released on blur, so `Ctrl+R` is not taken away from the rest of the machine. If the desktop refuses to hand out global shortcuts, the shell still starts; it just loses the gestures.
 
-On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); `DSH_SHELL_WAYLAND=1` opts out, and an explicit `GDK_BACKEND` is left alone.
+On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); setting `DSH_SHELL_WAYLAND` opts out — the test is only whether it is set, so `0` opts out just like the conventional `1` — and an explicit `GDK_BACKEND` is left alone the same way.
 
-Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and `DSH_SHELL_ZOOM` seeds it for a session — the environment wins.
+Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and a usable number in `DSH_SHELL_ZOOM` seeds it for a session — the environment wins, and a value that parses as no number is ignored rather than left to stop the shell from starting.
 
-The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE=1` opts out, for two shells on two ports side by side), and on macOS reactivating the app from the Dock does the same.
+The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE` opts out for any value at all, including the empty one, for two shells on two ports side by side), and on macOS reactivating the app from the Dock does the same.
+
+A release build has no WebView inspector. The one test is whether `DSH_SHELL_DEVTOOLS` is set — any value counts, the empty one included — and where it is not, neither window is built with an inspector and the *Developer Tools* item never reaches the menu, so a menu cannot offer what the webview has refused. On Windows and Linux `F12` is still registered; pressing it opens nothing. A debug build carries the inspector without asking. The log follows the same rule at the same place: a packaged GUI has no terminal, so a hand-off failure and a refused link reach stderr in a debug build, and in a release build only with `DSH_SHELL_DEBUG` set, which is again tested for being set rather than for a value.
 
 ### Updates to this application itself
 

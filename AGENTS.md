@@ -57,7 +57,9 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   `unregister_all` stops at the first failure. `global-hotkey`'s manager is not
   `Send`/`Sync` on Windows: `thread_local`, never managed state.
 - Linux takes the X11 backend whenever `DISPLAY` exists (`prefer_x11`) — Wayland-native
-  keys never reach X11's grabs; `DSH_SHELL_WAYLAND=1` opts out. A tray icon needs a
+  keys never reach X11's grabs; `DSH_SHELL_WAYLAND` opts out. Every `DSH_SHELL_*` switch
+  here tests *presence* (`var_os(..).is_some()`), so `=0` and `=` both opt out; the
+  READMEs say so because `=1` in prose reads as a value test. A tray icon needs a
   StatusNotifier host, which WSLg lacks.
 - No `zoom_hotkeys_enabled` (it injects a polyfill): zoom goes through `set_zoom`, with the
   factor remembered under the config dir and `DSH_SHELL_ZOOM` pinning it for a session (the
@@ -103,10 +105,14 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   state rather than in a temporary directory — the path it records, and the one it prints as
   the `sudo apt install` command, has to still be there tomorrow. The asset it is fetched
   through must stay version-free (`releases/latest/download/<name>` is literal).
-- Keep the five version fields equal and each README/CHANGELOG pair in sync, with exactly
-  one `## Unreleased` section: `release-notes.mjs` takes the first match. A section is the
-  release body verbatim, so entries stay one line and technical — the debugging story goes
-  in the commit or `testplace/WORKLOG.md`.
+- Keep the five version fields equal, and each README/CHANGELOG pair in sync. Entries go
+  under `## Unreleased` as they are made — exactly one per changelog, and first — and the
+  release renames it to `## X.Y.Z - YYYY-MM-DD` with an empty one back on top.
+  `scripts/changelog.mjs` is the one heading parser both scripts read through;
+  `check-docs.mjs` fails a changelog it cannot read a version out of rather than comparing
+  two empty lists, and holds the newest released section against the five fields. A section
+  is the release body verbatim, so entries stay one line and technical — the debugging
+  story goes in the commit or `testplace/WORKLOG.md`.
 - Icons come from `tauri icon`; changing `src-tauri/icons/` alone does not rebuild the exe,
   so touch `src-tauri/build.rs` first.
 - `web/whale.png` is a byte copy of `src-tauri/icons/128x128@2x.png`; its transparent
@@ -123,6 +129,7 @@ cargo fmt    --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 node --test  plugins/dsh-desktop-app/test/plugin.test.js
+node --input-type=module --check < web/main.js
 node scripts/check-docs.mjs
 ```
 

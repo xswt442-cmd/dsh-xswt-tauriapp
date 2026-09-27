@@ -12,7 +12,11 @@ commit into `main`. Only release-ready changes belong on `main`.
    - `src-tauri/tauri.conf.json#version`
    - `plugins/dsh-desktop-app/package.json#version` (the marketplace stub ships
      with the release it installs, so the tag contract covers it too)
-   - the first section of both changelogs: `## X.Y.Z - YYYY-MM-DD`
+   - both changelogs' `## Unreleased` section: rename it to
+     `## X.Y.Z - YYYY-MM-DD` and put an empty `## Unreleased` back on top of it.
+     Entries were written under it as they were made, so this is a rename rather
+     than a writing job, and `check-docs.mjs` wants that section present, first,
+     and exactly one per file at every commit — including this one.
    - the deb example in both READMEs: `dsh-xswt-tauriapp_X.Y.Z_amd64.deb`
    - both `Cargo.lock` files, which any cargo command rewrites to match — check
      `git status` before committing, because nothing else notices if they lag.
@@ -63,8 +67,9 @@ reaches release pages once it has been merged into `main`.
 Entries are one line each and state the change in technical terms: what is now
 true. How it was found, which file was at fault, and the measurements behind a
 decision belong in the commit message and in `testplace/WORKLOG.md`, not here.
-Both changelogs carry the same sections with the same number of entries in each;
-`scripts/check-docs.mjs` fails otherwise.
+Both changelogs carry the same sections with the same number of entries in each —
+the `## Unreleased` one included, which is what catches a one-sided entry on `dev`
+rather than at the tag; `scripts/check-docs.mjs` fails otherwise.
 
 ## The marketplace asset
 

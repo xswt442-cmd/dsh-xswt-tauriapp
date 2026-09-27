@@ -3,6 +3,37 @@
 Release notes are generated from the matching version section; newest first.
 For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
+## Unreleased
+
+### Added
+
+- Both changelogs now carry unreleased entries under `## Unreleased`, which the release commit renames to `## X.Y.Z - YYYY-MM-DD` and replaces with an empty one on top. `scripts/check-docs.mjs` requires exactly one, in first place, and holds the newest released section against the five version fields.
+
+### Fixed
+
+- A release build no longer ships the WebView inspector: each window takes it from `DSH_SHELL_DEVTOOLS` (always on in debug). The `devtools` Cargo feature had been on unconditionally, so F12 and right-click → Inspect worked in production while the menu gate only hid the menu item.
+- The installer and the four remembered settings are no longer truncated in place: bytes land in `<name>.part` and are renamed into place, so a file a reader can open was written whole, and a half installer can no longer sit at the path the dialog prints.
+- An update check in flight no longer overwrites a "don't remind me" click: whether the candidate is dismissed is recomputed against the list as it is now, not as it was when the check started.
+- Two hand-offs in a row no longer leave a built dsh window hidden: the second caller treats a taken label as the same outcome instead of a failure, which is what used to reset the state the working window still needed.
+- A server this shell started no longer leaves a zombie process when it exits on Unix; a thread waits for it.
+- A run with its zoom factor pinned by `DSH_SHELL_ZOOM` no longer rewrites the remembered factor — a pin lasts one session.
+- The single-instance accept loop returns on an unrecoverable error instead of spinning, one line of stderr per turn, for the life of the process.
+- An installed version that belongs to no known channel is offered no automatic update: it used to rank as the least stable thing on the machine, which qualified every channel.
+
+### Security
+
+- A link handed to the desktop's default handler is now limited to `http`, `https` and `mailto`: `explorer` and `open` run what they are handed, and dsh writes files to disk, so a `file:` link is a launch rather than a browse. A refusal is written to the shell log.
+- An installer file name from the release API is verified as a bare file name before it is used as a path, in both the Rust and the plugin download: a name carrying a separator escaped the cache directory *and* verified itself, because the same name is the `SHA256SUMS` key.
+- The plugin no longer hands an installer over with the `runas` verb on Windows, which could elevate silently, and passes argv straight to `spawn` instead of building a shell command string.
+
+### Maintenance
+
+- Released-section headings are parsed in one place, `scripts/changelog.mjs`, which both `check-docs.mjs` and `release-notes.mjs` now read through. Their patterns had disagreed, so one change of heading spelling could make both changelogs parse to nothing and the bilingual check pass on two empty lists.
+- `release-notes.mjs` accepts `X.Y.Z-rc.N` (`release.yml` cuts and marks such tags itself) and reports a missing section as a `::warning::` instead of quietly leaving the release body as one line of `Release X.Y.Z`.
+- The single-instance test that always hung on Windows now starts its accept on a thread the way the shell does, so `cargo test --lib` finishes on Windows — and the orphan it left behind was what made the previous run fail to link.
+- The startup-token pattern is compiled once rather than on every poll; `wait_for_ui` reads a 256 KiB log tail twice a second.
+- Both READMEs' environment-variable tables now state what the code tests — presence rather than non-empty — and cover `DSH_SHELL_RELEASES_API`, `DSH_BIN`, `DSH_NODE_BIN` and the plugin's four; the AGENTS.md Verify list has the front-end syntax check it was missing.
+
 ## 0.0.13 - 2026-09-24
 
 ### Added

@@ -43,7 +43,7 @@ DeepSeek Harness 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness
 dsh plugin --profile web add https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases/latest/download/dsh-xswt-tauriapp-plugin.tgz
 ```
 
-装上后**首次**启动 dsh 时，引导会读取本仓库最新 release，按平台挑选安装包，先取 `SHA256SUMS`、校验通过才写盘，再交给系统安装器。已装好外壳的机器，以及没有桌面会话的机器（CI，或 Linux 上没有 `DISPLAY`），只会看到一句说明。它不静默安装，也不导入任何 harness API，因此不会成为 dsh 启动失败的原因。
+装上后**首次**启动 dsh 时，引导会读取本仓库最新 release，按平台挑选安装包，先取 `SHA256SUMS`、校验通过才写盘，再交给系统安装器。已装好外壳的机器，以及没有桌面会话的机器（CI，或 Linux 上没有 `DISPLAY`），只会看到一句说明。引导自己读四个变量：`DSH_TAURIAPP_MODE` 只认 `auto`、`notice`、`off` 三个值，写成别的等于没写，仍按插件配置取；`DSH_TAURIAPP_FORCE=1` 让它在已经提示过一次之后仍然重新下载（其他值等于没设，`notice` 模式也仍然只给一句说明）；`DSH_TAURIAPP_NO_OPEN=1` 使它停在即将交给系统安装器的那一刻，只把该执行的命令打印出来（同样只认 `1`）；`DSH_TAURIAPP_RELEASES_API` 非空时覆盖发布接口地址。它的状态文件与下载的安装包都放在 `$DSH_HOME` 下——插件侧只要求该变量非空，不要求那个目录已经存在，这一点与外壳的 Rust 代码不同。它不静默安装，也不导入任何 harness API，因此不会成为 dsh 启动失败的原因。
 
 ### 使用 Release 产物
 
@@ -73,15 +73,16 @@ pnpm tauri build --bundles deb,rpm,appimage
 
 | 变量 | 作用 |
 |---|---|
-| `DSH_HOME` | DSH 主目录，默认 `~/.dsh` |
-| `DSH_BIN` | 直接指定 `dsh` 的 `lib/bin.js` |
-| `DSH_NODE_BIN` | 直接指定 `node` 可执行文件 |
-| `DSH_TAURI_REGISTRY` | 覆盖版本查询地址，默认 npm registry |
-| `DSH_SHELL_ALLOW_MULTIPLE` | 非空时允许同时运行多个外壳；默认第二次启动只把已在运行的那个提到前面 |
-| `DSH_SHELL_DEBUG` | 非空时输出交接、导航与更新检查日志 |
-| `DSH_SHELL_DEVTOOLS` | 非空时在菜单中提供开发者工具（debug 构建默认提供） |
-| `DSH_SHELL_ZOOM` | dsh 窗口的初始缩放因子（0.3–3.0），优先于记忆值 |
-| `DSH_SHELL_WAYLAND` | 在 Linux 上不切换到 X11 后端（见「菜单、托盘与快捷键」） |
+| `DSH_HOME` | DSH 主目录：非空、且指向一个确实存在的目录时才采用，否则回落到 `~/.dsh`（家目录取 `HOME`，Windows 上取 `USERPROFILE`） |
+| `DSH_BIN` | 非空时作为 `dsh` 的 `lib/bin.js` 的首选；它不存在时仍会继续尝试 `$DSH_HOME/profiles`、`npm_config_prefix` 与 `PATH` 里的候选 |
+| `DSH_NODE_BIN` | 非空时作为 `node` 可执行文件的候选，排在 `PATH` 之前；但拥有当前 dsh 安装的那个 node 若存在，会先于它被采用 |
+| `DSH_TAURI_REGISTRY` | 非空时覆盖 dsh 的版本查询地址，否则用 npm registry |
+| `DSH_SHELL_RELEASES_API` | 非空时覆盖外壳自身更新读取的 GitHub Releases API 地址，否则用本仓库的 `releases/latest`；供测试与镜像使用 |
+| `DSH_SHELL_ALLOW_MULTIPLE` | 只要被设置就允许同时运行多个外壳——空值与 `0` 同样算设置；默认第二次启动只把已在运行的那个提到前面 |
+| `DSH_SHELL_DEBUG` | 只要被设置就把交接、导航与更新检查的日志写到 stderr，空值也算设置；debug 构建无需设置，总是输出 |
+| `DSH_SHELL_DEVTOOLS` | 只要被设置就在发布构建里提供开发者工具，空值也算设置；debug 构建无需设置（见「菜单、托盘与快捷键」） |
+| `DSH_SHELL_ZOOM` | dsh 窗口的初始缩放因子，优先于记忆值：能解析成大于 `0` 的数字才生效（空值、`0` 与拼错的值一律忽略，回落记忆值），过界的值收敛到 0.3–3.0 |
+| `DSH_SHELL_WAYLAND` | 在 Linux 上只要被设置就不切换到 X11 后端——写成 `0` 同样是退出，习惯上置 `1`（见「菜单、托盘与快捷键」）；显式设置了 `GDK_BACKEND` 时外壳同样不干预 |
 
 ## 工作原理
 
@@ -121,6 +122,8 @@ pnpm tauri build --bundles deb,rpm,appimage
 
 dsh 的会话 cookie 带 `SameSite=Strict`，由其他源的页面发起的导航不会携带它，这正是把外壳页面直接导航到 dsh 会停在 dsh 401 文本上的原因。外壳保留 dsh 的安全语义，只调整交接顺序：Rust 先完成握手并把 cookie 写入 cookie 存储，之后才以 `http://127.0.0.1:<port>/` 创建 dsh 窗口。该窗口的首次导航由宿主发起，没有发起者页面，因此不是跨站请求。
 
+dsh 页面里指向站外的链接交给系统的默认程序打开，但能交出去的只有 `http:`、`https:` 与 `mailto:`：`file:` 会被拒绝，因为 `explorer` 与 `open` 不会跟递到手上的东西讲条件，命令线上的可执行文件会被直接运行，而 dsh 往磁盘写文件，于是一个指向文件的链接是一次启动而非一次浏览；解析不成 URL 的文本同样拒绝。被拒的链接只是留在原地失效，不会改到别处去打开，原因写进外壳日志（见「菜单、托盘与快捷键」的 `DSH_SHELL_DEBUG`）。
+
 ### 菜单、托盘与快捷键
 
 | 平台 | 形态 |
@@ -130,11 +133,13 @@ dsh 的会话 cookie 带 `SameSite=Strict`，由其他源的页面发起的导�
 
 Tauri 的快捷键只能挂在菜单 accelerator 上，而 Windows / Linux 上挂在窗口的菜单就是可见菜单栏。这两个平台因此改用全局快捷键，并且只在自身窗口获得焦点期间注册、失焦即注销，不会长期占用整台机器的 `Ctrl+R`。桌面环境拒绝发放全局快捷键时，外壳照常启动，只是失去快捷键。
 
-Linux 上另有一个前提：`global-hotkey` 通过 X11 抓键，而 Wayland 原生窗口的按键不经过 X 服务器，快捷键会注册成功但永不触发。外壳因此在有 `DISPLAY` 时默认使用 X11 后端（XWayland 在所有 Wayland 桌面上都存在），设置 `DSH_SHELL_WAYLAND=1` 可退出该行为；显式设置 `GDK_BACKEND` 时外壳不干预。
+Linux 上另有一个前提：`global-hotkey` 通过 X11 抓键，而 Wayland 原生窗口的按键不经过 X 服务器，快捷键会注册成功但永不触发。外壳因此在有 `DISPLAY` 时默认使用 X11 后端（XWayland 在所有 Wayland 桌面上都存在），设置 `DSH_SHELL_WAYLAND` 可退出该行为——判定只看有没有被设置，所以 `0` 也是退出，习惯上写 `1`；显式设置 `GDK_BACKEND` 时外壳同样不干预。
 
-缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上依赖向页面注入 polyfill，与本项目的不注入原则冲突。缩放因子会被记住（存于应用配置目录），重启后仍然生效；也可以用 `DSH_SHELL_ZOOM` 指定初值，此时环境变量优先。
+缩放由 Rust 调用原生 `set_zoom` 完成：WebView 自带的缩放热键在 macOS / Linux 上依赖向页面注入 polyfill，与本项目的不注入原则冲突。缩放因子会被记住（存于应用配置目录），重启后仍然生效；也可以用 `DSH_SHELL_ZOOM` 指定初值，此时环境变量优先——但生效的只是一个能解析成数字且大于 `0` 的值，其余（含空值与 `0`）一律被忽略，而不是把外壳卡住。
 
-dsh 窗口的大小与位置同样会被记住（同一个配置目录里的 `window.json`），下次启动放回原处。记忆中的位置只在当前某块显示器仍能显示它时才采用：显示器拔掉之后那些坐标在屏幕外，恢复它就等于启动了一个看不见的窗口，所以此时回到居中。再次启动外壳时，第二次进程不会开第二个窗口，而是把已经在运行的那个提到前面（`DSH_SHELL_ALLOW_MULTIPLE=1` 可绕过，用于两个端口并排跑两个外壳）；macOS 上从 Dock 图标重新激活（或再次 `open`）也会把窗口提到前面。
+dsh 窗口的大小与位置同样会被记住（同一个配置目录里的 `window.json`），下次启动放回原处。记忆中的位置只在当前某块显示器仍能显示它时才采用：显示器拔掉之后那些坐标在屏幕外，恢复它就等于启动了一个看不见的窗口，所以此时回到居中。再次启动外壳时，第二次进程不会开第二个窗口，而是把已经在运行的那个提到前面（设置 `DSH_SHELL_ALLOW_MULTIPLE` 即可绕过，任何值都算，用于两个端口并排跑两个外壳）；macOS 上从 Dock 图标重新激活（或再次 `open`）也会把窗口提到前面。
+
+发布构建里没有 WebView 检查器：唯一的判定是 `DSH_SHELL_DEVTOOLS` 有没有被设置（任何值都算，包括空值），没设置时两个窗口都不启用检查器，「开发者工具」这一项也不会出现在菜单里，因此不会出现「菜单里有项、按下去却没检查器」；Windows / Linux 上 `F12` 照样会被注册，但按下去什么也不打开。debug 构建不用设置就带着检查器。日志的开关在同一处：打包后的 GUI 没有终端，所以交接失败与外链被拒这类原因在 debug 构建里直接写到 stderr，在发布构建里要设置 `DSH_SHELL_DEBUG` 才写（同样只看有没有被设置）。
 
 ### 外壳自身的更新
 
