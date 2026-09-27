@@ -11,6 +11,10 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- An install reached through a profile's symlink farm (`$DSH_HOME/profiles/<name>/node_modules/.bin/dsh`) no longer reports an update on every launch: the installed version resolves the launcher through its symlinks before walking up to `package.json`, and when it still cannot be found nothing is offered. It used to look one directory up from `.bin`, then substitute `0.0.0` for "unknown" — which every stable release beats, while the dialog told you that you were running 0.0.0.
+- A `DSH_HOME` that points somewhere not yet existing is honoured as written instead of silently falling back to `~/.dsh`. The fallback found nothing (no token, no port candidate) and the start path then helpfully created it — a second tree, and a server in it nobody asked for, beside the one the user aims dsh at.
+- A cold start walks the logged ports once. `plan` scanned them first and the dialog's list scanned them again, on top of the two probes each port already costs inside `check_port`.
+- A failed start and every link handed to the system no longer leave an unreaped child behind; the previous batch covered only the successful start.
 - A release build no longer ships the WebView inspector: each window takes it from `DSH_SHELL_DEVTOOLS` (always on in debug). The `devtools` Cargo feature had been on unconditionally, so F12 and right-click → Inspect worked in production while the menu gate only hid the menu item.
 - The installer and the four remembered settings are no longer truncated in place: bytes land in `<name>.part` and are renamed into place, so a file a reader can open was written whole, and a half installer can no longer sit at the path the dialog prints.
 - An update check in flight no longer overwrites a "don't remind me" click: whether the candidate is dismissed is recomputed against the list as it is now, not as it was when the check started.

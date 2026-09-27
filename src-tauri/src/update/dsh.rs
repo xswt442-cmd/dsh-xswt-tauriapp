@@ -11,24 +11,37 @@ use crate::state::{SharedShell, UpdatePayload, EVENT_UPDATE};
 
 /// Ask the registry what exists and publish the answer.
 pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
-    let current = paths::installed_version().unwrap_or_else(|| "0.0.0".to_string());
+    // Not knowing the installed version is not the same as running `0.0.0`. That
+    // string parses, classifies as stable, ranks at the top of the stability
+    // ladder and loses every comparison — so an install this crate cannot place
+    // got an update prompt on every launch, and a dialog saying it was running
+    // 0.0.0. Unknown gets its own answer: offer nothing, say nothing is known.
+    let current = paths::installed_version();
     let store = shell
         .lock()
         .map(|guard| guard.store.clone())
         .unwrap_or_default();
 
-    let mut payload = match updates::check(&current, &store) {
-        Ok(report) => UpdatePayload {
-            current: current.clone(),
-            should_prompt: report.should_prompt(),
-            report: Some(report),
-            error: None,
-        },
-        Err(error) => UpdatePayload {
-            current: current.clone(),
+    let mut payload = match &current {
+        None => UpdatePayload {
+            current: String::new(),
             should_prompt: false,
             report: None,
-            error: Some(error),
+            error: None,
+        },
+        Some(version) => match updates::check(version, &store) {
+            Ok(report) => UpdatePayload {
+                current: version.clone(),
+                should_prompt: report.should_prompt(),
+                report: Some(report),
+                error: None,
+            },
+            Err(error) => UpdatePayload {
+                current: version.clone(),
+                should_prompt: false,
+                report: None,
+                error: Some(error),
+            },
         },
     };
 
@@ -55,7 +68,7 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
         .is_some_and(|report| report.should_prompt());
 
     if let Ok(mut guard) = shell.lock() {
-        guard.state.current_version = Some(current);
+        guard.state.current_version = current;
         guard.state.update = payload.report.clone();
         guard.state.update_error = payload.error.clone();
     }

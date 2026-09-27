@@ -338,6 +338,13 @@ where
             listening: probe_port(port, SCAN_CONNECT_TIMEOUT),
             token: logs::token_since(&spec.log_dir, port, out_from).is_some(),
         };
+        // The failure arm owns the same problem the success one does: this is
+        // still a child of this process, and a server that was too slow to prove
+        // itself is likelier still running than already gone. Dropping the handle
+        // on the way out to explain the failure left a zombie per failed start.
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
         Err(boot_failure(evidence).describe(
             port,
             BOOT_TIMEOUT_SECS,

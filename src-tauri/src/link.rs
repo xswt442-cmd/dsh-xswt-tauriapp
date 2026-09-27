@@ -109,9 +109,19 @@ pub fn open_external(url: &str) {
         shell_log!("[dsh-harness] refused to open this link: {url}");
         return;
     }
-    let _ = Command::new(opener_for(std::env::consts::OS))
+    let Ok(mut child) = Command::new(opener_for(std::env::consts::OS))
         .arg(url)
-        .spawn();
+        .spawn()
+    else {
+        return;
+    };
+    // Waited for on a thread rather than here, because the caller is the webview's
+    // navigation callback and `xdg-open` may not answer until the browser is up.
+    // Nothing is learnt from the exit code — a link this refuses is refused above
+    // — but an unwaited child is a zombie per clicked link on Unix.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 /// Hand a verified installer to the desktop's opener, and say whether it went.

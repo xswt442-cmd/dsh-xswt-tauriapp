@@ -9,18 +9,20 @@ use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The Harness home: `$DSH_HOME` when it points at an existing directory, else
-/// `~/.dsh`.
+/// The Harness home: `$DSH_HOME` when it is set to anything, else `~/.dsh`.
+///
+/// A directory that does not exist yet is still an answer. Requiring `is_dir()`
+/// made a typo, an unmounted drive, or a home the launcher has not created yet
+/// fall back to `~/.dsh` in silence, and the failure was far from the cause: no
+/// token found, no port candidate, and then [`crate::launch`] happily
+/// `create_dir_all`s that fallback — building a second tree beside the one the
+/// user actually points dsh at, with a server in it that nobody asked for.
+/// Honouring the value says what the user said instead.
 pub fn dsh_home() -> PathBuf {
-    if let Ok(raw) = std::env::var("DSH_HOME") {
-        if !raw.is_empty() {
-            let path = PathBuf::from(raw);
-            if path.is_dir() {
-                return path;
-            }
-        }
+    match std::env::var("DSH_HOME") {
+        Ok(raw) if !raw.is_empty() => PathBuf::from(raw),
+        _ => home_dir().join(".dsh"),
     }
-    home_dir().join(".dsh")
 }
 
 /// The invoking user's home directory.
@@ -307,10 +309,17 @@ pub fn strip_verbatim(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// The version of the installed dsh, read from the resolved launcher's
+/// The version of the installed dsh, read from the launcher's own
 /// `package.json` (`…/dsh/lib/bin.js` → `…/dsh/package.json`).
+///
+/// Resolved through the symlinks, like [`canonical_dsh_bin`] and for the same
+/// reason: what names the installation is the real directory behind the link, and
+/// a profile's `node_modules/.bin/dsh` reaches two parents up to
+/// `node_modules/package.json`, which is not anybody's version. Reading it
+/// un-resolved reported *no version at all* on exactly those installs — see
+/// [`crate::updates`] for what a missing version was then made to mean.
 pub fn installed_version() -> Option<String> {
-    let bin = resolve_dsh_bin()?;
+    let bin = canonical_dsh_bin()?;
     let manifest = bin.parent()?.parent()?.join("package.json");
     let text = fs::read_to_string(manifest).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;

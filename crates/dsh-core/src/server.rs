@@ -134,11 +134,25 @@ pub struct Plan {
 /// does not mean asking for it on every launch — but only while it is still
 /// free, since a suggestion that cannot be used is worse than the default.
 pub fn plan(last_chosen: Option<u16>) -> Result<Plan, String> {
-    let running = find_running_session();
-    if let Some(session) = &running {
+    plan_with(last_chosen, &known_ports(&log_dir(), KNOWN_PORT_LIMIT))
+}
+
+/// [`plan`] for a caller that has already surveyed the ports.
+///
+/// The shell walks the logged ports once to fill the dialog's list, and used to
+/// call [`plan`] on top of that: the same six ports were then probed twice over,
+/// three of them by a handshake that had just been run. Reading the answer out of
+/// the survey costs nothing and cannot disagree with what the list shows — the
+/// running server *is* the first entry the survey calls `Reuse`.
+pub fn plan_with(last_chosen: Option<u16>, known: &[KnownPort]) -> Result<Plan, String> {
+    if let Some(session) = known.iter().find_map(|port| match &port.choice {
+        PortChoice::Reuse(session) => Some(session.clone()),
+        _ => None,
+    }) {
+        let port = session.port;
         return Ok(Plan {
-            running: running.clone(),
-            suggested_port: session.port,
+            running: Some(session),
+            suggested_port: port,
         });
     }
     let suggested_port = last_chosen
