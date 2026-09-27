@@ -37,6 +37,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Maintenance
 
+- The release job checks the set of artifact names before computing checksums, reading the suffix list out of `self_update.rs` rather than keeping a third copy: a renamed product or a bundle leg that produced nothing used to sail through to the release page, where the dialog then printed an `apt install` line for a file nobody attached.
+- The heading parser both docs scripts share now has its own test, wired into `npm test`. When it fails to recognise a heading the bilingual guard passes on two empty lists, which looks exactly like the guard working.
 - It is now written down that the automatic update on Linux covers the `.deb` only: the same release also publishes an `.rpm` and an `.AppImage`, which are documented manual routes rather than something the updater overlooked.
 - Released-section headings are parsed in one place, `scripts/changelog.mjs`, which both `check-docs.mjs` and `release-notes.mjs` now read through. Their patterns had disagreed, so one change of heading spelling could make both changelogs parse to nothing and the bilingual check pass on two empty lists.
 - `release-notes.mjs` accepts `X.Y.Z-rc.N` (`release.yml` cuts and marks such tags itself) and reports a missing section as a `::warning::` instead of quietly leaving the release body as one line of `Release X.Y.Z`.

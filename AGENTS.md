@@ -131,6 +131,7 @@ cargo fmt    --manifest-path crates/dsh-core/Cargo.toml --check
 cargo fmt    --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path crates/dsh-core/Cargo.toml --all-targets -- -D warnings
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+node --test  scripts/changelog.test.mjs
 node --test  plugins/dsh-desktop-app/test/plugin.test.js
 node --input-type=module --check < web/main.js
 node scripts/check-docs.mjs
