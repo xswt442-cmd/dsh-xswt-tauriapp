@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use crate::handshake::{http_get, resolve_session, Session, AUTH_REQUIRED};
+use crate::handshake::{http_get, resolve_session, Session};
 use crate::launch::{spawn_server, wait_for_ui, Launch, SpawnSpec};
 use crate::logs::logged_ports;
 use crate::paths::log_dir;
@@ -73,10 +73,20 @@ pub fn check_port(port: u16) -> PortChoice {
     if let Some(session) = resolve_session(port) {
         return PortChoice::Reuse(session);
     }
-    // Listening, but not enterable. Ask once more whether what is there at least
-    // *is* a dsh, so the two cases can be told apart in the dialog.
+    // Listening, but not enterable. Ask once more whether it is asking for
+    // authentication at all, because that is the difference between a dsh whose
+    // token lives somewhere this shell cannot reach and some other program that
+    // happens to own the port.
+    //
+    // The status code is the whole test. It used to also want the English
+    // `dsh web authentication required` in the body, which meant a localised dsh
+    // was reported as `Occupied` — the one word AGENTS.md rules out for exactly
+    // this case, because "occupied" tells whoever started it that there is a bug.
+    // Reading the status alone can call another service's 401 a foreign dsh;
+    // guessing wrong that way still points the user at the port that answers,
+    // which is the more useful of the two mistakes.
     let probe = http_get(port, "/", None);
-    if probe.status == 401 && probe.body.contains(AUTH_REQUIRED) {
+    if probe.status == 401 {
         PortChoice::Foreign
     } else {
         PortChoice::Occupied

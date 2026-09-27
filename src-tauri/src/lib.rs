@@ -202,7 +202,6 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
             ..Default::default()
         },
         store,
-        dismiss_path,
         port_memory,
         self_dismiss,
         zoom: zoom_factor,
@@ -314,14 +313,10 @@ pub fn run() {
             commands::page_diag,
             commands::check_updates,
             commands::dismiss_version,
-            commands::check_self_update,
             commands::dismiss_self_version,
             commands::apply_self_update,
-            commands::clear_dismissed,
-            commands::dismissed_versions,
             commands::apply_update,
             commands::restart_app,
-            commands::dismiss_path,
         ])
         .on_window_event(|window, event| match event {
             WindowEvent::Focused(focused) => {

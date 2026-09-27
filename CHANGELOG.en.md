@@ -11,6 +11,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Fixed
 
+- Deciding "this is a dsh whose session you cannot enter from here" now reads the HTTP 401 alone, without also wanting that English phrase in the response body: a localised dsh used to fall through to "port occupied", which is exactly the wording that reads as a bug to whoever started it.
 - An install reached through a profile's symlink farm (`$DSH_HOME/profiles/<name>/node_modules/.bin/dsh`) no longer reports an update on every launch: the installed version resolves the launcher through its symlinks before walking up to `package.json`, and when it still cannot be found nothing is offered. It used to look one directory up from `.bin`, then substitute `0.0.0` for "unknown" — which every stable release beats, while the dialog told you that you were running 0.0.0.
 - A `DSH_HOME` that points somewhere not yet existing is honoured as written instead of silently falling back to `~/.dsh`. The fallback found nothing (no token, no port candidate) and the start path then helpfully created it — a second tree, and a server in it nobody asked for, beside the one the user aims dsh at.
 - A cold start walks the logged ports once. `plan` scanned them first and the dialog's list scanned them again, on top of the two probes each port already costs inside `check_port`.
@@ -26,12 +27,14 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ### Security
 
+- Four commands registered on the only capability-bearing window that no page ever sends are gone: `check_self_update`, `clear_dismissed`, `dismissed_versions`, `dismiss_path`. App-defined commands are not gated by a capability — registering one is making it callable from that page — and two of the four really did clear data and hand out a path.
 - A link handed to the desktop's default handler is now limited to `http`, `https` and `mailto`: `explorer` and `open` run what they are handed, and dsh writes files to disk, so a `file:` link is a launch rather than a browse. A refusal is written to the shell log.
 - An installer file name from the release API is verified as a bare file name before it is used as a path, in both the Rust and the plugin download: a name carrying a separator escaped the cache directory *and* verified itself, because the same name is the `SHA256SUMS` key.
 - The plugin no longer hands an installer over with the `runas` verb on Windows, which could elevate silently, and passes argv straight to `spawn` instead of building a shell command string.
 
 ### Maintenance
 
+- It is now written down that the automatic update on Linux covers the `.deb` only: the same release also publishes an `.rpm` and an `.AppImage`, which are documented manual routes rather than something the updater overlooked.
 - Released-section headings are parsed in one place, `scripts/changelog.mjs`, which both `check-docs.mjs` and `release-notes.mjs` now read through. Their patterns had disagreed, so one change of heading spelling could make both changelogs parse to nothing and the bilingual check pass on two empty lists.
 - `release-notes.mjs` accepts `X.Y.Z-rc.N` (`release.yml` cuts and marks such tags itself) and reports a missing section as a `::warning::` instead of quietly leaving the release body as one line of `Release X.Y.Z`.
 - The single-instance test that always hung on Windows now starts its accept on a thread the way the shell does, so `cargo test --lib` finishes on Windows — and the orphan it left behind was what made the previous run fail to link.

@@ -25,13 +25,6 @@ pub const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
 /// mistaken for ours.
 pub const UI_MARKER: &str = "DeepSeek Harness";
 
-/// What a dsh web server answers an unauthenticated request with.
-///
-/// Matched to tell "another program" apart from "a dsh this machine cannot
-/// enter": the Windows-side instance seen from WSL, for instance, listens on the
-/// same loopback and keeps its token and logs on the other side.
-pub(crate) const AUTH_REQUIRED: &str = "dsh web authentication required";
-
 /// One HTTP response, reduced to what the handshake needs.
 #[derive(Debug, Clone, Default)]
 pub struct HttpResponse {

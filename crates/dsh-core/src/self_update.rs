@@ -113,6 +113,14 @@ pub fn releases_api() -> String {
 /// listed. A bare executable would run without the dependencies, shortcuts and
 /// uninstaller the packages carry — and on Linux it would simply not start,
 /// since this application links the system WebKitGTK.
+///
+/// The Linux leg of the release also publishes an `.rpm` and an `.AppImage`, and
+/// neither is listed here deliberately. The `.AppImage` is the bare-executable
+/// case above; the `.rpm` is a manual route that works and is documented as one
+/// in the release notes (`sudo dnf install ./…rpm`), where an automatic
+/// hand-over would mean this shell choosing a package manager on the user's
+/// behalf. So a Fedora host is told the version and the command rather than being
+/// offered nothing without a word.
 pub fn installer_suffixes(os: &str, arch: &str) -> &'static [&'static str] {
     match (os, arch) {
         ("windows", "x86_64") => &["_x64-setup.exe"],

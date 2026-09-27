@@ -206,8 +206,6 @@ pub struct Shell {
     pub state: ShellState,
     /// The do-not-remind list.
     pub store: updates::DismissStore,
-    /// Where the do-not-remind list is persisted.
-    pub dismiss_path: Option<PathBuf>,
     /// The verified dsh session. Rust-only: see the module docs.
     pub session: Option<handshake::Session>,
     /// How far the guest window hand-off has got.
@@ -243,7 +241,6 @@ impl Default for Shell {
         Self {
             state: ShellState::default(),
             store: updates::DismissStore::default(),
-            dismiss_path: None,
             session: None,
             handoff: Handoff::default(),
             port_memory: ports::PortMemory::default(),
