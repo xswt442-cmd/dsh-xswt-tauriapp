@@ -17,7 +17,7 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
         .map(|guard| guard.store.clone())
         .unwrap_or_default();
 
-    let payload = match updates::check(&current, &store) {
+    let mut payload = match updates::check(&current, &store) {
         Ok(report) => UpdatePayload {
             current: current.clone(),
             should_prompt: report.should_prompt(),
@@ -31,6 +31,28 @@ pub fn refresh(app: &AppHandle, shell: &SharedShell) -> UpdatePayload {
             error: Some(error),
         },
     };
+
+    // The registry call above blocks for however long the network takes, and a
+    // "don't remind me" click can land inside that window. `store` is the list as
+    // it was when the check started, so the two dismissal-dependent answers are
+    // taken from the list as it is now — otherwise the click is undone by the
+    // check already in flight, and the page is told to prompt for a version it
+    // was just dismissed for.
+    if let Some(report) = payload.report.as_mut() {
+        let dismissed = shell.lock().ok().and_then(|guard| {
+            report
+                .candidate
+                .as_ref()
+                .map(|candidate| guard.store.is_dismissed(&candidate.version))
+        });
+        if let Some(dismissed) = dismissed {
+            report.candidate_dismissed = dismissed;
+        }
+    }
+    payload.should_prompt = payload
+        .report
+        .as_ref()
+        .is_some_and(|report| report.should_prompt());
 
     if let Ok(mut guard) = shell.lock() {
         guard.state.current_version = Some(current);

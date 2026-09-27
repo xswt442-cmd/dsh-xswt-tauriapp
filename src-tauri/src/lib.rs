@@ -71,6 +71,9 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
     // glow, so the hand-over from the OS fill to the rendered gradient is not a
     // visible step.
     .background_color(tauri::window::Color(0x17, 0x1b, 0x28, 0xff))
+    // The same rule as the guest's: the inspector exists only where this says it
+    // does, so a release build's DevTools are opt-in on both windows.
+    .devtools(guest::devtools_available())
     .on_navigation(|url| {
         // This window carries the only capability, so its policy is its own and
         // narrower than the guest's: the bundled assets, nothing else. A loopback

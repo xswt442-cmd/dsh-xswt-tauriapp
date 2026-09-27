@@ -101,7 +101,19 @@ pub fn listen(app: &AppHandle, identifier: &str) {
                 shell_log!("[dsh-harness] another launch asked for this window");
                 crate::guest::show(&app);
             }
-            Err(error) => shell_log!("[dsh-harness] single-instance accept failed: {error}"),
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => {
+                // Stop rather than spin. This loop has no deadline, so a failure
+                // that keeps failing would otherwise cost one line of stderr per
+                // iteration for the life of the process. Dropping the listener
+                // releases the name, which is exactly the state a shell with no
+                // single-instance support is in: the convenience is lost, the
+                // launch never is.
+                shell_log!(
+                    "[dsh-harness] single-instance accept failed ({error}); no longer listening"
+                );
+                return;
+            }
         }
     });
 }
@@ -148,14 +160,16 @@ mod tests {
     #[test]
     fn a_debug_build_does_not_claim_the_installed_shells_name() {
         // The case this exists for: the shell under test and the installed copy
-        // are different applications as far as the socket is concerned.
-        assert_eq!(socket_name("com.xswt.dsh.tauri"), {
-            if cfg!(debug_assertions) {
-                "com.xswt.dsh.tauri-dev".to_string()
-            } else {
-                "com.xswt.dsh.tauri".to_string()
-            }
-        });
+        // are different applications as far as the socket is concerned. Pinned to
+        // the spelling each build must produce — comparing against a second copy
+        // of the same `cfg!` branch would hold however `socket_name` itself
+        // changed, which is to say it would pin nothing.
+        let base = "com.xswt.dsh.tauri";
+        if cfg!(debug_assertions) {
+            assert_eq!(socket_name(base), format!("{base}-dev"));
+        } else {
+            assert_eq!(socket_name(base), base);
+        }
         assert_ne!(socket_name("x"), socket_name("y"));
     }
 
@@ -170,6 +184,13 @@ mod tests {
         // What the first instance *does* with the connection is `listen`'s thread,
         // which wants a window and so is out of reach here — the channel is the
         // part that can be pinned without one.
+        //
+        // The accept has to be underway before the connect, which is why this
+        // waits on a thread like the shell does: on Windows a synchronous
+        // listener hands out its pipe instance from inside `accept`, so a client
+        // that connects first is waiting for the very instance its own `accept`
+        // would create. Sequenced on one thread the two deadlock, and the test
+        // hung there for the life of the run.
         let identifier = unique("busy");
         let name = socket_name(&identifier);
         let listener = ListenerOptions::new()
@@ -180,17 +201,28 @@ mod tests {
             )
             .create_sync()
             .expect("bind the name");
+        let (said, heard) = std::sync::mpsc::channel();
+        let accepted = std::thread::spawn(move || {
+            let Ok(mut stream) = listener.accept() else {
+                return;
+            };
+            let mut hello = [0u8; HELLO.len()];
+            if std::io::Read::read_exact(&mut stream, &mut hello).is_ok() {
+                let _ = said.send(hello);
+            }
+        });
 
         assert!(hand_over(&identifier), "the listener is there to be found");
-        let mut stream = listener.accept().expect("a connection arrives");
-        let mut said = [0u8; HELLO.len()];
-        std::io::Read::read_exact(&mut stream, &mut said).expect("the hello arrives");
-        assert_eq!(&said, HELLO);
+        let hello = heard
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the hello arrives within 10 seconds");
+        assert_eq!(&hello[..], HELLO);
 
-        // Once it is gone, the same name reads as a first launch again — which is
-        // what makes the next launch of the shell a fresh one rather than a hand
-        // over to a process that has quit.
-        drop(listener);
+        // Once the listener is gone the same name reads as a first launch again,
+        // which is what makes the next launch of the shell a fresh one rather than
+        // a hand over to a process that has quit. The listener went down with the
+        // thread, so joining is how this knows that.
+        let _ = accepted.join();
         assert!(!hand_over(&identifier));
     }
 }
