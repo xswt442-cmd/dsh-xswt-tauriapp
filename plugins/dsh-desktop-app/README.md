@@ -10,6 +10,7 @@ manifest, and on the **first `dsh` start after installation** it
 
 1. checks whether the shell is already installed (and says nothing if it is),
 2. reads the shell's latest GitHub release and picks this platform's installer from its asset list,
+   refusing an asset whose name is not a bare file name,
 3. downloads `SHA256SUMS`, downloads the installer, and verifies the digest **before writing anything**
    to disk (`$DSH_HOME/dsh-xswt-tauriapp/updates/`, where it also removes the installers it supersedes),
 4. hands the verified file to the operating system — `start` on Windows, `open` on macOS, `xdg-open`
@@ -17,7 +18,18 @@ manifest, and on the **first `dsh` start after installation** it
 
 Every later start is silent. On WSL the Linux asset is a `.deb`, which `xdg-open` cannot install: the
 plugin says so, names the `sudo apt install <path>` that does, and points at the Windows installer if
-the desktop is the Windows one. A hand-off that fails is a log line, never a no-op.
+the desktop is the Windows one.
+
+What a hand-off guarantees is what the platform answers. `open` and `xdg-open` report themselves, so an
+opener that exits non-zero — the usual bare-WSL case, where nothing is registered for `.deb` — is logged
+as a failure and followed by the command that does work. `cmd.exe /c start` does not: it exits 0 whether
+or not it opened the file, so a Windows hand-off that opened nothing cannot be detected from here. What
+is guaranteed on every platform is that the verified file's path is in the log and that nothing is ever
+installed or run silently — and with `open: false`, or `DSH_TAURIAPP_NO_OPEN=1`, the command to finish
+it by hand is printed instead of the hand-off.
+
+Requests are bounded the way the shell bounds its own: 15 seconds for the release lookup, 300 for a
+download, so a stalled connection is a logged failure rather than a hang on a harness's boot path.
 
 ## What it deliberately does not do
 
@@ -61,9 +73,12 @@ Facts rather than settings: a machine with no desktop session (`CI`, or Linux wi
 `WAYLAND_DISPLAY`) is only told where the download is, and a release with no installer for this
 platform/architecture (`linux/arm64`, `win32/arm64`) is only pointed at the release page.
 
-Two more variables exist for the tests and for a mirror: `DSH_TAURIAPP_RELEASES_API` replaces the
-GitHub releases API URL, `DSH_TAURIAPP_FORCE=1` offers the installer again after it has already been
-downloaded once.
+Three more variables exist for the tests and for a mirror: `DSH_TAURIAPP_RELEASES_API` replaces the
+GitHub releases API URL — an asset name that arrives through it is checked before it is used as a path
+or an argument, so a feed cannot write outside `$DSH_HOME`; `DSH_TAURIAPP_FORCE=1` offers the installer
+again after it has already been downloaded once; `DSH_TAURIAPP_INSTALL_DIRS` replaces the directories
+the installed-copy probe looks in, so a test or a custom install prefix describes its own host instead
+of the machine it happens to be running on.
 
 ## Tests
 
@@ -71,8 +86,10 @@ downloaded once.
 node --test plugins/dsh-desktop-app/test/plugin.test.js
 ```
 
-Every case runs against a stand-in release server on loopback: nothing in the suite reaches GitHub,
-and `DSH_TAURIAPP_NO_OPEN=1` keeps each run at the point where it would have handed the file over.
+Every case runs against a stand-in release server on loopback: nothing in the suite reaches GitHub.
+Nothing runs a real platform opener either — the driver cases stop at the hand-off with
+`DSH_TAURIAPP_NO_OPEN=1`, and `openInstaller` itself is exercised against a child that only records the
+argv it was handed and exits with a chosen status.
 
 ## Uninstall
 

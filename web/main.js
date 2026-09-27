@@ -31,6 +31,12 @@ let navigated = false;
 let dialogOpen = false;
 /** The port was confirmed and a server is being started for it. */
 let starting = false;
+/** The last start this page asked for, so 重试 means the same request again.
+ * Null until the dialog has been answered: before that there is nothing here to
+ * repeat, and only a new process runs discovery again. */
+let lastStart = null;
+/** The snapshot last folded in, as serialised text. */
+let appliedSnapshot = null;
 
 // ── failure reporting ──────────────────────────────────────────────────────
 
@@ -130,9 +136,20 @@ function showStage(name) {
 
 function renderFailure() {
   dialogOpen = false;
+  // A failure ends whatever was in flight. Leaving `starting` set would keep
+  // `decide()` from ever re-offering the dialog, which is the one thing a user
+  // who has just read an error still needs to be able to do.
+  starting = false;
   showStage("failure");
   el("failure-message").textContent = shell?.error || "未知错误";
-  el("failure-logdir").textContent = shell?.log_dir || "~/.dsh/launcher/logs";
+  // Only Rust knows where the logs are: the directory follows `DSH_HOME` when it
+  // is set, and otherwise the home directory — `HOME` on one platform,
+  // `USERPROFILE` on another. This used to print a `~/.dsh/launcher/logs` guess,
+  // which read as fact on a Windows machine and on any `DSH_HOME` at all.
+  el("failure-logdir").textContent = shell?.log_dir || "未知：外壳未能报告日志目录";
+  const retry = el("btn-retry");
+  retry.disabled = false;
+  retry.classList.toggle("hidden", lastStart === null);
 }
 
 function showInlineError(message) {
@@ -144,9 +161,19 @@ function showInlineError(message) {
 function versionRow(entry, current) {
   const row = document.createElement("li");
   row.className = "version";
+  row.dataset.version = entry.version;
+  // A row of a single-select listbox. `paintSelection` is the one place that says
+  // which row is chosen, so nothing here has to be kept in step with it.
+  row.setAttribute("role", "option");
+  row.setAttribute("aria-selected", "false");
+  row.tabIndex = -1;
   const isCurrent = entry.version === current;
-  if (isCurrent) row.classList.add("installed");
-  else if (entry.version === selected) row.classList.add("selected");
+  if (isCurrent) {
+    // Not a choice but a fact about this machine, so it stays out of the arrow-key
+    // run rather than being an option that refuses to be taken.
+    row.classList.add("installed");
+    row.setAttribute("aria-disabled", "true");
+  }
 
   const label = document.createElement("span");
   label.textContent = entry.version;
@@ -171,16 +198,94 @@ function versionRow(entry, current) {
     badge.textContent = "可更新";
     meta.append(badge);
   }
+
+  // The chosen mark, in words. `.selected` is a border colour, and a colour is
+  // not something every user reads; CSS shows this only on the selected row.
+  const chosen = document.createElement("span");
+  chosen.className = "badge chosen";
+  chosen.textContent = "已选";
+  meta.append(chosen);
+
   row.append(meta);
 
   if (!isCurrent) {
-    row.addEventListener("click", () => {
-      selected = entry.version;
-      renderChannels();
-      updateButtons();
-    });
+    row.addEventListener("click", () => selectVersion(entry.version));
   }
   return row;
+}
+
+/**
+ * Choose a version, and repaint the rows that are already there.
+ *
+ * Routing this through `renderChannels` would recreate every row, and with them
+ * go the focus and the caret position of whoever just pressed a key — so the
+ * selection is a class swap, and only the shell's own renders rebuild the list.
+ */
+function selectVersion(version) {
+  if (!version) return;
+  selected = version;
+  paintSelection();
+  updateButtons();
+}
+
+/** Bring `.selected`, `aria-selected` and the roving `tabindex` to one state. */
+function paintSelection() {
+  // Roving per channel, not across the dialog: three lists sit side by side, and
+  // a single stop for all of them would leave two unreachable by Tab.
+  for (const list of document.querySelectorAll("#channels .versions")) {
+    const rows = [...list.querySelectorAll(".version")].filter(
+      (row) => !row.classList.contains("installed"),
+    );
+    // One stop per list: the chosen row, or the first, so a list nothing has been
+    // chosen in is still reachable from the keyboard.
+    const anchor = rows.find((row) => row.dataset.version === selected) ?? rows[0];
+    for (const row of rows) {
+      const on = row === anchor && row.dataset.version === selected;
+      row.classList.toggle("selected", on);
+      row.setAttribute("aria-selected", String(on));
+      row.tabIndex = row === anchor ? 0 : -1;
+    }
+  }
+}
+
+/**
+ * Arrow through a channel's versions; Enter or Space takes the focused one.
+ *
+ * Selection follows focus, which is what a single-choice list does here anyway:
+ * the footer button reads out the version as the arrows move, so what the arrows
+ * point at and what the button would do cannot drift apart. Left and right are
+ * deliberately not bound — the three channels sit side by side, and a reader
+ * would have to guess which way an arrow went.
+ */
+function onVersionKeys(event) {
+  const rows = [...event.currentTarget.querySelectorAll(".version:not(.installed)")];
+  const at = rows.indexOf(event.target);
+  if (at < 0) return;
+  let to = at;
+  switch (event.key) {
+    case "ArrowDown":
+      to = Math.min(rows.length - 1, at + 1);
+      break;
+    case "ArrowUp":
+      to = Math.max(0, at - 1);
+      break;
+    case "Home":
+      to = 0;
+      break;
+    case "End":
+      to = rows.length - 1;
+      break;
+    case "Enter":
+    case " ":
+      event.preventDefault();
+      selectVersion(rows[at].dataset.version);
+      return;
+    default:
+      return;
+  }
+  event.preventDefault();
+  rows[to].focus();
+  selectVersion(rows[to].dataset.version);
 }
 
 function renderChannels() {
@@ -225,6 +330,13 @@ function renderChannels() {
 
     const list = document.createElement("ul");
     list.className = "versions";
+    if (channel.versions.length) {
+      // Three listboxes full of version numbers are indistinguishable when a
+      // reader announces "list box", so the channel is the label.
+      list.setAttribute("role", "listbox");
+      list.setAttribute("aria-label", `${channel.label}版本列表`);
+      list.addEventListener("keydown", onVersionKeys);
+    }
     if (!channel.versions.length) {
       const empty = document.createElement("li");
       empty.className = "empty";
@@ -235,6 +347,8 @@ function renderChannels() {
     section.append(list);
     host.append(section);
   }
+
+  paintSelection();
 }
 
 function updateButtons() {
@@ -312,6 +426,10 @@ function renderDialog() {
  * The candidate is only adopted when the user has not already chosen one, so a
  * payload that lands while they are reading does not move the selection under
  * them. A recheck clears the choice first, so a recheck does adopt.
+ *
+ * What it has already seen does not come back through here: `applySnapshot`
+ * drops a snapshot that changed nothing, and adopting one again would clear the
+ * choice the user just made and rebuild the lists under their focus.
  */
 function adoptUpdate(payload) {
   update = payload;
@@ -477,21 +595,34 @@ async function confirmAndStart() {
   }
 
   setPortHint(verdict.kind, port);
+  // Remembered as the thing this page asked for, which is what 重试 can repeat.
+  // `typed` says whether the port came from the field or from the greyed
+  // default, which the value alone cannot: typing the suggested port by hand is
+  // still a preference, and Rust remembers only preferences.
+  lastStart = { port, typed: el("port-input").value.trim() !== "" };
+  await startOn(lastStart);
+}
+
+/**
+ * Ask the shell to bring a server up on the port the user confirmed.
+ *
+ * Returns as soon as the work is under way — the outcome arrives as
+ * `shell://ready` or `shell://error` — and both the dialog's confirm and the
+ * failure page's 重试 come through here, which is why the in-flight flag is set
+ * here rather than at either caller.
+ */
+async function startOn(request) {
   dialogOpen = false;
   starting = true;
   // Back to the splash: it carries the progress line while the server boots.
   showStage("splash");
-  el("splash-message").textContent = `正在端口 ${port} 启动 dsh 服务…`;
+  el("splash-message").textContent = `正在端口 ${request.port} 启动 dsh 服务…`;
   try {
-    // Returns as soon as the work is under way; the outcome arrives as an event.
-    // `typed` says whether the port came from the field or from the greyed
-    // default, which the value alone cannot: typing the suggested port by hand is
-    // still a preference, and Rust remembers only preferences.
-    const typed = el("port-input").value.trim() !== "";
-    await invoke("start_server", { port, typed });
+    await invoke("start_server", { port: request.port, typed: request.typed });
   } catch (failure) {
     reportFailure("start_server", failure);
-    starting = false;
+    // `renderFailure` is what clears `starting`; the failure page is the only
+    // thing the user reads next.
     shell = { ...(shell || {}), phase: "failed", error: `无法启动 dsh 服务：${failure}` };
     renderFailure();
   }
@@ -522,6 +653,16 @@ async function goToDsh() {
 /** Fold a state snapshot into the page. */
 function applySnapshot(state) {
   if (!state) return;
+  // The one guard against a tick that changed nothing. Polling hands the same
+  // snapshot over once a second from the moment startup settles, and folding it
+  // in again re-enters `adoptUpdate` — which clears the candidate, resets the
+  // checkbox and rebuilds both lists, undoing the user's click and their focus
+  // every second. The snapshot is small and this page keeps no copy of its own,
+  // so comparing the whole thing costs less than tracking which fields a render
+  // reads.
+  const serialized = JSON.stringify(state);
+  if (serialized === appliedSnapshot) return;
+  appliedSnapshot = serialized;
   shell = state;
   if (state.phase === "failed") {
     renderFailure();
@@ -612,8 +753,10 @@ el("btn-open").addEventListener("click", confirmAndStart);
 
 el("btn-update").addEventListener("click", async () => {
   if (!selected) return;
-  el("progress-text").textContent = `正在更新到 ${selected}…`;
+  // Shown first, then written: `#progress-text` is the live region, and a change
+  // made while its subtree is still `display: none` is a change nothing observes.
   el("progress").classList.remove("hidden");
+  el("progress-text").textContent = `正在更新到 ${selected}…`;
   try {
     // On success the shell restarts, so this promise does not resolve.
     await invoke("apply_update", { version: selected });
@@ -672,8 +815,19 @@ el("btn-self-dismiss").addEventListener("click", async () => {
   }
 });
 
-el("btn-retry").addEventListener("click", () => invoke("restart_app"));
-el("btn-restart").addEventListener("click", () => invoke("restart_app"));
+// Two different gestures, which `restart_app` twice over was not. 重试 asks the
+// shell again for the port this page already confirmed, in this process; the
+// process restart is 重启应用, and it is the only one of the two that can re-run
+// discovery — so it is also the only answer when nothing was ever confirmed,
+// which is when `renderFailure` hides this button.
+el("btn-retry").addEventListener("click", async () => {
+  if (!lastStart) return;
+  el("btn-retry").disabled = true;
+  await startOn(lastStart);
+});
+el("btn-restart").addEventListener("click", () => {
+  invoke("restart_app").catch((failure) => reportFailure("restart_app", failure));
+});
 
 async function init() {
   const live = await attachListeners();

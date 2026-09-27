@@ -27,7 +27,7 @@ import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, delimiter, join } from 'node:path'
 
 /** Stable Cordis plugin name. */
 const name = 'xswt-tauriapp'
@@ -40,6 +40,16 @@ const USER_AGENT = 'dsh-xswt-tauriapp-plugin'
 
 /** The one asset every release carries beside its installers. */
 const CHECKSUMS = 'SHA256SUMS'
+
+/**
+ * How long a request may take before it is called a failure, in milliseconds:
+ * the stub's mirror of the shell's own `API_TIMEOUT` and `DOWNLOAD_TIMEOUT`
+ * (`crates/dsh-core/src/self_update.rs`). A `fetch` with no deadline does not
+ * fail, it waits — and this one runs on a harness's boot path, where a stalled
+ * connection used to mean a silent hang and no log line at all.
+ */
+const API_TIMEOUT = 15_000
+const DOWNLOAD_TIMEOUT = 300_000
 
 /** The installed application's name, in its bundle and its executable. */
 const APP = 'dsh-xswt-tauriapp'
@@ -130,16 +140,50 @@ function statePath(env = process.env) {
 }
 
 /**
+ * Whether a release asset's name can be used as a file name at all.
+ *
+ * The name comes over the network, and `DSH_TAURIAPP_RELEASES_API` is a
+ * documented override — a mirror, or somebody else's release JSON, is a real
+ * input here. The chosen name becomes a path component under `$DSH_HOME` *and*
+ * part of the platform opener's argument list, and it is also the key looked up
+ * in `SHA256SUMS`, so a name that climbs out of the updates directory still
+ * verifies: the digest cannot be the check. This is.
+ *
+ * A bare file name means no directory part in either spelling, no traversal, no
+ * colon (a drive or an alternate data stream), and no control character. The
+ * name never reaches a shell as a command of its own: it is always joined to the
+ * absolute updates directory first, so it cannot read as an option either.
+ * @param name - a release asset's file name.
+ * @returns whether it is safe to write and to hand over.
+ */
+function isBareFileName(name) {
+  if (typeof name !== 'string' || name === '') return false
+  if (name.includes('/') || name.includes('\\')) return false
+  if (name === '.' || name === '..' || name.includes('..')) return false
+  if (name.includes(':')) return false
+  // NUL and the rest of the control range. They make file names that cannot be
+  // printed and logs that can be split.
+  return !/[\u0000-\u001f\u007f]/.test(name)
+}
+
+/**
  * Where a verified installer is written: under `$DSH_HOME`, beside the state
  * file, and for the same reason. Both the recorded state and the log line name
  * this path as the `sudo apt install <path>` a person can still run tomorrow,
  * and a temporary directory is emptied by a reboot — which made a download that
  * verified correctly look like a file that had never been written.
+ *
+ * The name is checked here as well as where it is chosen, because this is the
+ * line that turns a name into a path: nothing that reaches it may escape the
+ * directory it belongs in.
  * @param installerName - the installer's file name.
  * @param env - the environment to read.
  * @returns the absolute path to write it to.
  */
 function installerPath(installerName, env = process.env) {
+  if (!isBareFileName(installerName)) {
+    throw new Error(`${JSON.stringify(installerName)} is not a bare file name, so it is not written under ${dshHome(env)}`)
+  }
   return join(dshHome(env), APP, 'updates', installerName)
 }
 
@@ -188,39 +232,76 @@ function writeState(state, env = process.env) {
 }
 
 /**
+ * The directories each platform's installer puts the application in, used when
+ * the caller names none. A Linux host that installs under `/opt` keeps a
+ * directory of its own, which the executable shape below joins once more.
+ */
+const INSTALL_DIRS = {
+  darwin: ['/Applications'],
+  linux: ['/usr/bin', '/usr/local/bin', join('/opt', APP)],
+}
+
+/**
+ * How a platform's installed copy is spelled inside one of its directories: an
+ * `.app` bundle, an installed folder holding the executable, or a bare
+ * executable. Decided by the platform, never by who is asking.
+ * @param dir - a directory installers write to.
+ * @param platform - `process.platform`.
+ * @returns the path an installed copy would be at.
+ */
+function installedIn(dir, platform) {
+  if (platform === 'win32') return join(dir, APP, `${APP}.exe`)
+  if (platform === 'darwin') return join(dir, `${APP}.app`)
+  return join(dir, APP)
+}
+
+/**
  * Where the shell would already be if its installer had run. Best effort by
  * design: this only decides whether the plugin stays quiet, and a miss costs one
  * redundant download rather than a wrong action.
  *
- * The Windows roots come from the environment; on macOS and Linux they used to be
- * absolute — `/Applications`, `/usr/bin` — which made this a question about the
- * machine running the tests rather than about the host the test names: install the
+ * On macOS and Linux the directories used to be hardcoded absolute paths —
+ * `/Applications`, `/usr/bin` — which made this a question about the machine
+ * running the tests rather than about the host a test names: install the
  * application to try it, and every test that expects a download starts finding an
- * installed copy instead. A fixture answers for itself, the way `isWsl` reads a
- * fixture's environment rather than the host's, because a host's filesystem is
- * whatever the fixture says it is. The real paths are what the real environment
- * gets, which is what `apply` passes.
+ * installed copy instead. The fix was a fork on whether `env` *was* `process.env`
+ * (object identity), and that left the tested path and the shipped path as
+ * different code: a fixture could only ever express `$HOME/.local/bin`, while
+ * every real host probed the absolute directories.
+ *
+ * The directories are data now. `DSH_TAURIAPP_INSTALL_DIRS` — a path list, so
+ * split on `path.delimiter` — replaces them wholesale for a caller describing a
+ * host it is not on, exactly as `LOCALAPPDATA` and `ProgramFiles` already did, and
+ * what a directory *contains* is decided by `platform`. One code path, so a test
+ * can name any host's filesystem, installed or not, and the entry point can be
+ * driven on a machine that really has the application.
  * @param platform - `process.platform`.
  * @param env - the environment to read.
  * @returns candidate paths, any of which means "already installed".
  */
 function installedCandidates(platform = process.platform, env = process.env) {
-  if (platform === 'win32') {
-    const roots = [
-      env.LOCALAPPDATA,
-      env.LOCALAPPDATA !== undefined ? join(env.LOCALAPPDATA, 'Programs') : undefined,
-      env.ProgramFiles,
-      env['ProgramFiles(x86)'],
-    ]
-    return roots.filter(Boolean).map((root) => join(root, APP, `${APP}.exe`))
+  const listed = env.DSH_TAURIAPP_INSTALL_DIRS
+  const dirs =
+    listed === undefined || listed === ''
+      ? platform === 'win32'
+        ? [
+            env.LOCALAPPDATA,
+            env.LOCALAPPDATA !== undefined ? join(env.LOCALAPPDATA, 'Programs') : undefined,
+            env.ProgramFiles,
+            env['ProgramFiles(x86)'],
+          ].filter(Boolean)
+        : platform === 'darwin'
+          ? INSTALL_DIRS.darwin
+          : INSTALL_DIRS.linux
+      : listed.split(delimiter).filter(Boolean)
+  const candidates = dirs.map((dir) => installedIn(dir, platform))
+  // A home bin is where a person installs things themselves, on either unix, and a
+  // fixture owns its own `HOME` — so it stays probeable without naming the
+  // machine's absolute directories.
+  if (platform !== 'win32' && env.HOME !== undefined && env.HOME !== '') {
+    candidates.push(join(env.HOME, '.local', 'bin', APP))
   }
-  if (env !== process.env) {
-    // No home, no installs: "nothing is installed here" has to be as sayable as
-    // the opposite, or a suite can only assert what the machine happens to be.
-    return env.HOME === undefined ? [] : [join(env.HOME, '.local', 'bin', APP)]
-  }
-  if (platform === 'darwin') return [`/Applications/${APP}.app`]
-  return [`/usr/bin/${APP}`, `/usr/local/bin/${APP}`, join(homedir(), '.local/bin', APP), `/opt/${APP}/${APP}`]
+  return candidates
 }
 
 /** @returns whether the application is already installed. */
@@ -229,16 +310,56 @@ function isInstalled(platform = process.platform, env = process.env) {
 }
 
 /**
+ * Whether an error is a missed deadline rather than an answer the server sent.
+ *
+ * `AbortSignal.timeout` rejects with a `TimeoutError`, and Node's `fetch` either
+ * surfaces that directly or wraps it, so both shapes count.
+ * @param error - whatever was thrown.
+ * @returns whether the request ran out of time.
+ */
+function isTimeout(error) {
+  const timedOut = (candidate) => candidate !== null && typeof candidate === 'object' && candidate.name === 'TimeoutError'
+  return timedOut(error) || timedOut(error?.cause)
+}
+
+/**
+ * A request with a deadline that reports itself when it is missed.
+ *
+ * Without a signal, a connection that stalls mid-handshake leaves `run()` waiting
+ * forever on a harness's boot path: not a failure, not a log line, nothing. Every
+ * fetch in this module goes through here so a stall becomes an ordinary reported
+ * failure, with the timeout's own reason kept as the cause.
+ * @param what - how to name the request when it stalls.
+ * @param timeout - the deadline, in milliseconds.
+ * @param request - the fetch to run, including reading its body.
+ * @returns whatever `request` resolves to.
+ */
+async function withTimeout(what, timeout, request) {
+  try {
+    return await request()
+  } catch (error) {
+    if (isTimeout(error)) {
+      throw new Error(`${what} did not answer within ${timeout / 1000}s`, { cause: error })
+    }
+    throw error
+  }
+}
+
+/**
  * Read the release the shell's own updater reads.
  * @param api - the releases API URL, `DSH_TAURIAPP_RELEASES_API` if set.
+ * @param timeout - how long the lookup may take; `API_TIMEOUT` in production.
  * @returns the version, the release page and the asset list.
  */
-async function fetchRelease(api) {
-  const response = await fetch(api, {
-    headers: { accept: 'application/vnd.github+json', 'user-agent': USER_AGENT },
+async function fetchRelease(api, timeout = API_TIMEOUT) {
+  const release = await withTimeout('the release lookup', timeout, async () => {
+    const response = await fetch(api, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(timeout),
+    })
+    if (!response.ok) throw new Error(`the release lookup answered HTTP ${response.status}`)
+    return response.json()
   })
-  if (!response.ok) throw new Error(`the release lookup answered HTTP ${response.status}`)
-  const release = await response.json()
   const assets = Array.isArray(release.assets) ? release.assets : []
   return {
     version: String(release.tag_name ?? '').replace(/^[vV]/, ''),
@@ -282,10 +403,43 @@ function verifyDigest(bytes, expected) {
 }
 
 /** @returns the bytes at a URL, following GitHub's asset redirect. */
-async function download(url) {
-  const response = await fetch(url, { headers: { 'user-agent': USER_AGENT } })
-  if (!response.ok) throw new Error(`the download answered HTTP ${response.status}`)
-  return Buffer.from(await response.arrayBuffer())
+async function download(url, timeout = DOWNLOAD_TIMEOUT) {
+  return withTimeout('the download', timeout, async () => {
+    const response = await fetch(url, {
+      headers: { 'user-agent': USER_AGENT },
+      signal: AbortSignal.timeout(timeout),
+    })
+    if (!response.ok) throw new Error(`the download answered HTTP ${response.status}`)
+    // The body counts against the same deadline: an asset that stops streaming
+    // half-way would otherwise hang here rather than at the request.
+    return Buffer.from(await response.arrayBuffer())
+  })
+}
+
+/**
+ * An error in the words that actually diagnose it.
+ *
+ * Node's `fetch failed` is a `TypeError` that keeps the real reason — DNS, TLS, a
+ * proxy, a refused connection — in `.cause`. A handler that prints only
+ * `error.message` reports every network failure as the same contentless line, so
+ * the cause is followed until it runs out. A cause that is not an `Error` (a
+ * `DOMException`, a bare string) is read the way it would print.
+ * @param error - whatever was thrown.
+ * @param depth - how deep down the cause chain this call is; the chain is finite.
+ * @returns the message, with the cause's message after it when there is one.
+ */
+function describeError(error, depth = 0) {
+  if (error instanceof Error) {
+    const message = error.message !== '' ? error.message : error.name
+    if (error.cause === undefined || error.cause === null || depth >= 3) return message
+    const cause = describeError(error.cause, depth + 1)
+    return cause === '' ? message : `${message}: ${cause}`
+  }
+  if (typeof error === 'string' || typeof error === 'number' || typeof error === 'boolean') return String(error)
+  if (error === null || error === undefined) return ''
+  // A `DOMException` and friends: `String` gives `Name: message`, which is the
+  // part worth reading, and never throws the way a getter might.
+  return String(error)
 }
 
 /**
@@ -302,6 +456,20 @@ function manualCommand(path, platform = process.platform) {
 }
 
 /**
+ * The opener this platform runs to hand a file over, as data rather than as a
+ * spawn. Kept apart from `openInstaller` so the argument shape is pinned by a
+ * test on every platform, including the one the test is not running on.
+ * @param path - the file to hand over.
+ * @param platform - `process.platform`.
+ * @returns the program and the arguments it is handed.
+ */
+function openerCommand(path, platform = process.platform) {
+  if (platform === 'win32') return { file: 'cmd.exe', args: ['/c', 'start', '', path] }
+  if (platform === 'darwin') return { file: 'open', args: [path] }
+  return { file: 'xdg-open', args: [path] }
+}
+
+/**
  * Hand a verified file to the platform opener. Spawning a detached child is the
  * whole of it: the user answers SmartScreen, Gatekeeper or the package manager,
  * which is exactly the boundary this plugin promises.
@@ -309,20 +477,21 @@ function manualCommand(path, platform = process.platform) {
  * The child is not waited for — an installer window outlives us — but its exit is
  * not discarded either. `xdg-open` on a machine with no handler for `.deb` runs,
  * exits non-zero and opens nothing, and a handoff that fails in silence is the one
- * outcome this module exists to avoid.
+ * outcome this module exists to avoid. On Windows `start` answers nothing: it exits
+ * 0 whether or not it opened the file, so a silent hand-off there is reported by
+ * the verified path in the log rather than by the child.
  * @param path - the verified installer.
  * @param platform - `process.platform`.
  * @param log - where a failed handoff is reported.
+ * @param spawnImpl - `spawn`, or a test's stand-in for it. This is the only place
+ *   in the module that starts a process, so it is also the only place a test can
+ *   watch: the seam lets a test record the argv a real child was handed without
+ *   ever running an installer.
  */
-function openInstaller(path, platform = process.platform, log = console.log) {
-  const command =
-    platform === 'win32'
-      ? { file: 'cmd.exe', args: ['/c', 'start', '', path] }
-      : platform === 'darwin'
-        ? { file: 'open', args: [path] }
-        : { file: 'xdg-open', args: [path] }
+function openInstaller(path, platform = process.platform, log = console.log, spawnImpl = spawn) {
+  const command = openerCommand(path, platform)
   try {
-    const child = spawn(command.file, command.args, { detached: true, stdio: 'ignore', windowsHide: true })
+    const child = spawnImpl(command.file, command.args, { detached: true, stdio: 'ignore', windowsHide: true })
     child.on('error', (error) => log(`${PREFIX} could not run ${command.file}: ${error.message}`))
     child.on('exit', (code) => {
       if (code !== 0) {
@@ -331,7 +500,7 @@ function openInstaller(path, platform = process.platform, log = console.log) {
     })
     child.unref()
   } catch (error) {
-    log(`${PREFIX} could not run ${command.file}: ${error instanceof Error ? error.message : String(error)}`)
+    log(`${PREFIX} could not run ${command.file}: ${describeError(error)}`)
   }
 }
 
@@ -375,10 +544,10 @@ function logWslHint(log, platform, env) {
  * The plugin's whole behaviour: notice the application is missing, fetch this
  * platform's installer, verify it, hand it over, remember that it happened.
  *
- * Every exit is a log line, and the only writes are the installer (after its
- * digest matched) and the state file — both under `$DSH_HOME`, where a reboot
- * cannot take them. Exported through `internals` so the tests can drive it
- * against a stand-in release server.
+ * Every exit is a log line, and the only writes are the installer (once its name
+ * proved to be a bare file name and its digest matched) and the state file — both
+ * under `$DSH_HOME`, where a reboot cannot take them. Exported through `internals`
+ * so the tests can drive it against a stand-in release server.
  *
  * The platform is a parameter like `env` is, not a global: which asset a machine
  * installs from and whether it has a desktop are both answers about a *host*, and
@@ -390,8 +559,17 @@ function logWslHint(log, platform, env) {
  * @param log - where to report.
  * @param platform - `process.platform`; the tests name the host they mean.
  * @param arch - `process.arch`.
+ * @param handOff - `openInstaller`, or a test's stand-in for it: the one step that
+ *   starts a process, and so the one a suite may not run for real.
  */
-async function run(config, env = process.env, log = console.log, platform = process.platform, arch = process.arch) {
+async function run(
+  config,
+  env = process.env,
+  log = console.log,
+  platform = process.platform,
+  arch = process.arch,
+  handOff = openInstaller,
+) {
   if (config.mode === 'off') return
   if (isInstalled(platform, env)) return
 
@@ -414,6 +592,13 @@ async function run(config, env = process.env, log = console.log, platform = proc
   const release = await fetchRelease(env.DSH_TAURIAPP_RELEASES_API || DEFAULT_RELEASES_API)
   const installer = assetNamed(release, (assetName) => assetName.endsWith(suffix))
   if (installer === undefined) throw new Error(`release ${release.version} carries no ${suffix} asset`)
+  // Refused before the name is a path component, an opener argument or a
+  // `SHA256SUMS` key: an asset named `../../x_amd64.deb` would write itself out
+  // of the updates directory *and* verify, because the digest is looked up under
+  // the same escaped name. Nothing is fetched for it either.
+  if (!isBareFileName(installer.name)) {
+    throw new Error(`release ${release.version} names its installer ${JSON.stringify(installer.name)}, which is not a bare file name`)
+  }
   const checksums = assetNamed(release, (assetName) => assetName === CHECKSUMS)
   if (checksums === undefined) throw new Error(`release ${release.version} carries no ${CHECKSUMS}`)
 
@@ -442,15 +627,33 @@ async function run(config, env = process.env, log = console.log, platform = proc
     logWslHint(log, platform, env)
     return
   }
-  openInstaller(path, platform, log)
+  handOff(path, platform, log)
   log(`${PREFIX} handed the installer to the system; finish it there`)
   if (platform === 'linux') {
     // Not a footnote on Linux: the opener routinely completes with nothing
     // visible, and a `.deb` needs root whoever opens it, so this is the line that
-    // works. On Windows and macOS the opener does the job and stays quiet.
+    // works. On macOS a non-zero `open` is reported by `openInstaller` itself; on
+    // Windows `start` answers nothing, so the verified path logged above is what a
+    // person has to work from.
     log(`${PREFIX} if nothing opened: ${manualCommand(path, platform)}`)
     logWslHint(log, platform, env)
   }
+}
+
+/**
+ * Report a failure the way the entry point does: what went wrong, then where to
+ * get the application by hand.
+ *
+ * `describeError` rather than `error.message`, because the reason a `fetch`
+ * failed lives in its `cause` — DNS, TLS, a proxy, a refused connection — and a
+ * log line that says only `fetch failed` asks the reader to guess which of those
+ * it was.
+ * @param error - whatever `run` threw.
+ * @param log - where to report.
+ */
+function reportFailure(error, log = console.log) {
+  log(`${PREFIX} ${describeError(error)}`)
+  log(`${PREFIX} download it manually from ${RELEASES_PAGE}`)
 }
 
 /**
@@ -462,39 +665,46 @@ async function run(config, env = process.env, log = console.log, platform = proc
  * @returns a promise that never rejects.
  */
 export function apply(ctx, config) {
-  return run(resolveConfig(config)).catch((error) => {
-    console.log(`${PREFIX} ${error instanceof Error ? error.message : String(error)}`)
-    console.log(`${PREFIX} download it manually from ${RELEASES_PAGE}`)
-  })
+  return run(resolveConfig(config)).catch((error) => reportFailure(error))
 }
 
 /** Test surface: pure helpers plus the driver, none of it part of the contract. */
 export const internals = {
   APP,
+  API_TIMEOUT,
   CHECKSUMS,
   DEFAULT_CONFIG,
   DEFAULT_RELEASES_API,
+  DOWNLOAD_TIMEOUT,
   INSTALLER_SUFFIXES,
   MODES,
   RELEASES_PAGE,
   STATE_FILE: 'plugin.json',
   assetNamed,
+  describeError,
+  download,
   dshHome,
   fetchRelease,
   hasDesktop,
   installedCandidates,
   installerPath,
   installerSuffix,
+  isBareFileName,
   isInstalled,
+  isTimeout,
   isWsl,
   manualCommand,
+  openInstaller,
+  openerCommand,
   parseSha256Sums,
   pruneInstallers,
   readState,
+  reportFailure,
   resolveConfig,
   run,
   statePath,
   verifyDigest,
+  withTimeout,
   writeState,
 }
 
