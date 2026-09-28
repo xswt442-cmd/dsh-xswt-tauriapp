@@ -112,6 +112,8 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   under `## Unreleased` as they are made — exactly one per changelog, and first — and the
   release renames it to `## X.Y.Z - YYYY-MM-DD` with an empty one back on top.
   `scripts/changelog.mjs` is the one heading parser both scripts read through;
+  `check-docs.mjs` reads the pair paths from the `pairs` list at its top, so a
+  document that moves into `docs/` is an edit there rather than a new rule;
   `check-docs.mjs` fails a changelog it cannot read a version out of rather than comparing
   two empty lists, and holds the newest released section against the five fields. A section
   is the release body verbatim, so entries stay one line and technical — the debugging

@@ -52,11 +52,11 @@ commit into `main`. Only release-ready changes belong on `main`.
 The release workflow validates that the tag matches all five version fields,
 rebuilds the deb and AppImage, packs the marketplace stub, and creates — or
 refreshes — the GitHub release with those artifacts and the notes taken from
-`CHANGELOG.md`. Tags are not moved; cut a new patch release instead.
+`docs/CHANGELOG.md`. Tags are not moved; cut a new patch release instead.
 
 ## Changelog and release notes
 
-The matching section of `CHANGELOG.md` *is* the release body, appended verbatim
+The matching section of `docs/CHANGELOG.md` *is* the release body, appended verbatim
 to the fixed install block the workflow writes — so whatever goes in the
 changelog is what a visitor to the release page reads. The workflow reads that
 section from the **default branch** (`main`), not from the tag: at release time

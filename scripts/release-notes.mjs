@@ -11,9 +11,12 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version ?? '')) {
   process.exit(2)
 }
 
+// Where this repository keeps its changelog, as `check-docs.mjs` also declares.
+const changelogPath = 'docs/CHANGELOG.md'
+
 let active = false
 const lines = []
-for (const line of fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/)) {
+for (const line of fs.readFileSync(changelogPath, 'utf8').split(/\r?\n/)) {
   if (line.startsWith('## ')) {
     if (active) break
     active = matchRelease(line)?.version === version
@@ -28,6 +31,6 @@ if (!body) {
   // costs the notes their text, never the release, so this stays a warning — but
   // a release page reading `Release 0.1.0` with nothing under it looks like a
   // deliberate choice unless somebody says otherwise in the log.
-  console.error(`::warning::CHANGELOG.md has no '## ${version}' section; the notes get no body`)
+  console.error(`::warning::${changelogPath} has no '## ${version}' section; the notes get no body`)
 }
 process.stdout.write(body || `Release ${version}`)

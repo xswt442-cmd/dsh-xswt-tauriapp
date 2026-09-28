@@ -4,6 +4,14 @@ import { matchRelease, matchUnreleased, UNRELEASED } from './changelog.mjs'
 
 const read = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
 
+// The documentation pairs this repository ships. Every path the checks below read
+// comes from this list, so moving a document into a directory is an edit here.
+const pairs = [
+  { name: 'README', zh: 'README.md', en: 'README.en.md' },
+  { name: 'CHANGELOG', zh: 'docs/CHANGELOG.md', en: 'docs/CHANGELOG.en.md' },
+]
+const pairOf = (name) => pairs.find((pair) => pair.name === name)
+
 function markdownShape(file) {
   let fenced = false
   const headings = []
@@ -70,9 +78,11 @@ function assertEqual(left, right, message) {
   }
 }
 
-assertEqual(markdownShape('README.md'), markdownShape('README.en.md'), 'README structure differs between languages')
+const readme = pairOf('README')
+assertEqual(markdownShape(readme.zh), markdownShape(readme.en), 'README structure differs between languages')
 
-const changelogs = ['CHANGELOG.md', 'CHANGELOG.en.md'].map((file) => {
+const changelog = pairOf('CHANGELOG')
+const changelogs = [changelog.zh, changelog.en].map((file) => {
   const releases = changelogShape(file)
   // Two shapes that a drifted heading spelling produces, both of which have to be
   // errors rather than a comparison of two empty lists: nothing readable as a
@@ -163,12 +173,9 @@ if (baseIndex !== -1) {
       .split(/\r?\n/)
       .filter(Boolean))
 
-    for (const [primary, translation] of [
-      ['README.md', 'README.en.md'],
-      ['CHANGELOG.md', 'CHANGELOG.en.md'],
-    ]) {
-      if (changed.has(primary) !== changed.has(translation)) {
-        throw new Error(`${primary} and ${translation} must change together`)
+    for (const pair of pairs) {
+      if (changed.has(pair.zh) !== changed.has(pair.en)) {
+        throw new Error(`${pair.zh} and ${pair.en} must change together`)
       }
     }
   }

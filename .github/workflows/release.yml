@@ -308,16 +308,19 @@ jobs:
           live="$RUNNER_TEMP/changelog-default-branch.md"
           pattern='^## (\[?'"${version}"'\]?)([[:space:]]|$)'
           # Three things can fail without the release being at fault: the branch
-          # cannot be fetched, it has no CHANGELOG.md, or it has no section for this
-          # version. All three are conditions rather than steps, because the worst
+          # cannot be fetched, it has no docs/CHANGELOG.md, or it has no section for
+          # this version. All three are conditions rather than steps, because the worst
           # outcome has to be the tag's own changelog — what every release used
-          # before this existed — and never a failed release. The file is grepped
-          # rather than a pipe into `grep -q`, whose early exit can SIGPIPE the
-          # writer and, under `pipefail`, read as "no match" on a match.
+          # before this existed — and never a failed release. Re-running a tag
+          # cut before the changelog moved into `docs/` lands in that worst case:
+          # the frozen definition looks for the root path, the default branch no
+          # longer has one, and the notes come from that tag's own changelog. The
+          # file is grepped rather than a pipe into `grep -q`, whose early exit can
+          # SIGPIPE the writer and, under `pipefail`, read as "no match" on a match.
           if git fetch --depth=1 origin "$branch" \
-             && git show "FETCH_HEAD:CHANGELOG.md" > "$live" \
+             && git show "FETCH_HEAD:docs/CHANGELOG.md" > "$live" \
              && grep -qE "$pattern" "$live"; then
-            cp "$live" CHANGELOG.md
+            cp "$live" docs/CHANGELOG.md
             echo "the notes come from $branch's changelog"
           else
             echo "::warning::no ${version} section to be had from $branch; using the tag's changelog"
