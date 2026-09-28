@@ -13,7 +13,7 @@ periphery, dsh owns its own page. It never patches or vendors dsh.
   `WORKLOG.md` as the running log. Keep this file short.
 - `skills/` holds agent-facing runbooks: one directory per skill, with its `SKILL.md`. They are
   versioned with the code, not kept in a machine-local agent config.
-- Read `RELEASING.md` before a release.
+- Read `docs/RELEASING.md` before a release.
 
 ## Engineering
 

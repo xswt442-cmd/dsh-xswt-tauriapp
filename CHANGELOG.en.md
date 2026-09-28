@@ -5,6 +5,10 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+### Maintenance
+
+- The one loose document, `RELEASING.md`, moved under `docs/`. The root keeps only what GitHub and npm expect there (`README*`, `CHANGELOG*`, `LICENSE`) and what tooling looks up by name (`AGENTS.md`, `CLAUDE.md`).
+
 ## 0.0.14 - 2026-09-28
 
 ### Added

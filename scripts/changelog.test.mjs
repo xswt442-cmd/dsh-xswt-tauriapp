@@ -12,7 +12,7 @@ import { matchRelease, matchUnreleased, UNRELEASED } from './changelog.mjs'
  * checker silently stops seeing is the shape that breaks the guard.
  */
 
-test('a released section is read the way RELEASING.md asks for it', () => {
+test('a released section is read the way docs/RELEASING.md asks for it', () => {
   assert.deepEqual(matchRelease('## 0.0.13 - 2026-09-24'), { version: '0.0.13', date: '2026-09-24' })
   // A prerelease tail is part of the version: `release.yml` cuts `vX.Y.Z-rc.N`
   // tags and marks such a release as one.

@@ -5,6 +5,10 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ## Unreleased
 
+### 维护
+
+- 唯一那份散装文档 `RELEASING.md` 归入 `docs/`；根上只留 GitHub/npm 约定该在根的文件（`README*`、`CHANGELOG*`、`LICENSE`）与按名字被工具查找的入口（`AGENTS.md`、`CLAUDE.md`）。
+
 ## 0.0.14 - 2026-09-28
 
 ### 新增
