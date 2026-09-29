@@ -87,85 +87,21 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 
 ## How it works
 
-### Server discovery, handshake and session hand-off
-
-| Step | Behaviour |
+| Stage | Behaviour |
 |---|---|
-| Port band | `3080`–`3129` |
-| Reuse test | Reads the launch token from the tail of `$DSH_HOME/launcher/logs/server-<port>.out.log` |
-| Handshake (in Rust) | `GET /?token=…` → 303 with a session cookie → re-request with the cookie, then check the page for `DeepSeek Harness` |
-| Hand-off | Writes the cookie into the cookie store — supplying the `Domain` the server omitted — and only builds the dsh window once it reads back |
-| Unauthenticated server | A bare `GET /` answering 200 with the marker is accepted too |
+| Port band | `3080`–`3129`; candidates come from the file names in `$DSH_HOME/launcher/logs/server-<port>.out.log`, and a port with no log has no launch token |
+| Reuse | The launch token is read from the tail of that log, `GET /?token=…` returns a 303 with a session cookie, and a re-request checks the page marker; a server without dsh authentication is accepted on a bare `GET /` answering 200 |
 | Start | `node <dsh>/lib/bin.js web --port <p> --no-open`, in its own process group, appending to that same log |
+| Choosing the port | An adoptable server pre-fills its port and confirming reuses it; otherwise the default is the first free port of the band, and only a typed port is remembered; below `1024` is refused; a dsh this machine cannot enter is reported as a foreign service |
+| Windows | `bootstrap` is a local origin and the only window granted an IPC capability; `dsh` is a remote origin and is granted nothing |
+| Hand-off | dsh's session cookie is `SameSite=Strict`, so Rust completes the handshake and writes the cookie store first and builds the dsh window afterwards; that window's first navigation is started by the host and is same-origin |
+| Outbound links | Only `http:`, `https:` and `mailto:` reach the desktop's default handler; `file:` and text that does not parse as a URL are refused, with the reason in the shell log (`DSH_SHELL_DEBUG`) |
+| Updates | dsh is looked up on npm and this application in its own GitHub Releases, in parallel, and neither compares the other's versions; an installer is checked against `SHA256SUMS` before the system sees it, a mismatch names both hashes and writes nothing, a release without checksums is not downloaded, and a release with nothing installable here offers the release page instead |
+| Remembered | A typed port, the zoom factor and the window's size and position live in the application config directory; a remembered position is used only while a display that is here now can show it |
 
-The server log is the only source of the token: an instance started by hand in a terminal, whose log never lands there, is not recognised, and the shell starts one of its own. That follows from dsh's authentication model; the shell does not guess around it.
+Menu and tray follow the platform: macOS gets the native system menu, whose Edit menu the text shortcuts need, and Windows and Linux get a tray menu with no permanent menu bar. A shortcut is registered only while one of the shell's own windows has focus. On Linux `global-hotkey` grabs keys through X11 and a Wayland-native window's keystrokes never reach the X server, so the shell uses the X11 backend whenever `DISPLAY` exists; `DSH_SHELL_WAYLAND` opts out, and an explicit `GDK_BACKEND` is left alone. Zoom goes through the native `set_zoom` rather than an injected hotkey polyfill.
 
-### Choosing the port
-
-| Situation | Behaviour |
-|---|---|
-| An adoptable server was found | The field is pre-filled with its port; confirming reuses it. Typing another port starts a second instance |
-| Nothing adoptable | Default is the first free port of `3080`–`3129`, or a port typed before while it is still free |
-| Another program owns the port | Said there and then; confirming does not go ahead |
-| A dsh is there that this machine cannot enter | Called out separately — a Windows-side instance, or one started under a different `DSH_HOME` |
-| Below `1024` | Refused: an ordinary user cannot bind it |
-
-Only a port that was **typed** is remembered, and used as the next default. Accepting the grey default is not a choice, so the default keeps tracking the first free port.
-
-Discovery candidates come from the **file names** in `$DSH_HOME/launcher/logs/server-<port>.out.log` rather than from a sweep of the whole band: a port with no log has no launch token, so its handshake could never complete and probing it is wasted work. That is also what lets a deliberately unusual port — `9000`, say — be found again on the next launch.
-
-### Window model and the first navigation
-
-| Window | Content | Access |
-|---|---|---|
-| `bootstrap` | The shell's own page: progress, the update dialog, failure text | A local origin, and the only window granted an IPC capability |
-| `dsh` | dsh's own interface, untouched | A remote origin, granted nothing |
-
-dsh's session cookie is `SameSite=Strict`, and a navigation started by a page at another origin does not carry it — which is why navigating the shell page to dsh stops on dsh's 401 text. The shell keeps dsh's security semantics and changes the order instead: Rust completes the handshake and writes the cookie into the cookie store first, and only then builds the dsh window on `http://127.0.0.1:<port>/`. That window's first navigation is started by the host with no initiating page, so it is not a cross-site request.
-
-A link that leaves the dsh page goes to the desktop's default handler, but only `http:`, `https:` and `mailto:` are ever handed over: a `file:` link is refused, because `explorer` and `open` do not argue about what they are handed — an executable named on the command line is run — and dsh writes files to disk, so a link to one is a launch rather than a browse. Text that does not parse as a URL is refused with the rest. A refused link just stays dead where it is instead of opening somewhere unexpected, and the reason reaches the shell's log (see `DSH_SHELL_DEBUG` under "Menus, tray and shortcuts").
-
-### Menus, tray and shortcuts
-
-| Platform | Shape |
-|---|---|
-| macOS | A native system menu, including an Edit menu — the standard text shortcuts depend on it |
-| Windows / Linux | A tray menu; no permanent menu bar, so none of dsh's height is spent on one |
-
-Tauri can bind a keyboard shortcut only through a menu accelerator, and on Windows and Linux a menu attached to a window *is* a visible menu bar. Those platforms therefore use global shortcuts, registered only while one of the shell's windows has focus and released on blur, so `Ctrl+R` is not taken away from the rest of the machine. If the desktop refuses to hand out global shortcuts, the shell still starts; it just loses the gestures.
-
-On Linux there is one further condition: `global-hotkey` grabs keys through X11, and a Wayland-native window's keystrokes never pass through the X server, so the shortcuts register successfully and then never fire. The shell therefore uses the X11 backend whenever `DISPLAY` exists (XWayland is present on every Wayland desktop); setting `DSH_SHELL_WAYLAND` opts out — the test is only whether it is set, so `0` opts out just like the conventional `1` — and an explicit `GDK_BACKEND` is left alone the same way.
-
-Zoom is applied from Rust through the native `set_zoom`: the webview's own zoom hotkeys work by injecting a polyfill into the page on macOS and Linux, which conflicts with the no-injection rule. The factor is remembered in the application config directory, so it survives a restart, and a usable number in `DSH_SHELL_ZOOM` seeds it for a session — the environment wins, and a value that parses as no number is ignored rather than left to stop the shell from starting.
-
-The dsh window's size and position are remembered too, in `window.json` beside it, and restored on the next launch. A remembered position is used only while a display that is here *now* can still show it: unplug the monitor it was recorded on and those coordinates are off-screen, so restoring them would mean launching a window nobody can see, and the window centres instead. Launching the shell again does not open a second window either — the second process raises the one already running (`DSH_SHELL_ALLOW_MULTIPLE` opts out for any value at all, including the empty one, for two shells on two ports side by side), and on macOS reactivating the app from the Dock does the same.
-
-A release build has no WebView inspector. The one test is whether `DSH_SHELL_DEVTOOLS` is set — any value counts, the empty one included — and where it is not, neither window is built with an inspector and the *Developer Tools* item never reaches the menu, so a menu cannot offer what the webview has refused. On Windows and Linux `F12` is still registered; pressing it opens nothing. A debug build carries the inspector without asking. The log follows the same rule at the same place: a packaged GUI has no terminal, so a hand-off failure and a refused link reach stderr in a debug build, and in a release build only with `DSH_SHELL_DEBUG` set, which is again tested for being set rather than for a value.
-
-### Updates to this application itself
-
-Two independent paths: dsh comes from npm, this application comes from its own GitHub Releases. Startup asks both at once, and neither waits for the other.
-
-| Situation | Behaviour |
-|---|---|
-| A newer build with an installer for this machine | The dialog offers *Download and install*; the file is checked against `SHA256SUMS` and only then handed to the system installer |
-| A newer build with nothing installable here | The action becomes *Open the release page* — no guessing, nothing else downloaded |
-| The check fails (offline, rate-limited API, no release yet) | Silent. Not knowing about an update is not a reason to interrupt anyone |
-| The checksum does not match, or the release publishes none | Refused, with the expected and actual hashes named; nothing is written |
-
-Both sides must parse as semver and the tag's `v` prefix is stripped first. The dsh comparator is not reused here: its string fallback suits a version feed, while an updater using it would offer the build the user is already running. "Don't remind me" is recorded per application version in its own file (`dismissed-shell-updates.json`), so it can neither silence a dsh update nor be silenced by one.
-
-### Updates to dsh itself
-
-Channels are derived from the version string rather than from npm's dist-tags, because a tag can itself point at a release candidate.
-
-| Channel | Test |
-|---|---|
-| Stable | No prerelease suffix, e.g. `0.1.5` |
-| RC | Prerelease starts with `rc`, e.g. `0.1.5-rc.2` |
-| Alpha | Prerelease starts with `alpha`, e.g. `0.1.6-alpha.1` |
-
-The launch prompt only offers a candidate from a channel at least as stable as the installed one: an RC install is offered RC or stable, and alpha has to be chosen deliberately from the dialog. "Don't remind me about this version" records that version in the app config directory and suppresses only that version.
+A failed update check — offline, rate-limited, no release yet — stays silent, since not knowing about an update is no reason to interrupt anyone. The launch prompt offers only a channel at least as stable as the installed one, with the channel read from the version string rather than from an npm dist-tag, and "don't remind me" is recorded per version and does not touch dsh's own ignore list. Launching the shell again raises the one already running; `DSH_SHELL_ALLOW_MULTIPLE` opts out.
 
 ## Development and verification
 
