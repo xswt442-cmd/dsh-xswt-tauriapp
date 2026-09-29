@@ -61,8 +61,8 @@ fn build_bootstrap(app: &tauri::App) -> tauri::Result<()> {
         WebviewUrl::App("index.html".into()),
     )
     .title("DeepSeek Harness（外壳）")
-    // Sized for the dialog, which is what this window now shows: it used to be
-    // sized for a splash that the dialog then covered.
+    // Sized for the dialog this window shows, so the window opens large enough to
+    // hold it whole.
     .inner_size(960.0, 730.0)
     .min_inner_size(640.0, 520.0)
     .center()
@@ -196,7 +196,7 @@ fn new_shell(app: &tauri::AppHandle) -> state::SharedShell {
             message: "正在启动…".into(),
             log_dir: Some(paths::log_dir().display().to_string()),
             // Resolved once here rather than per check: the dialog's "installed
-            // at" line used to show the loopback URL, which is not where dsh is.
+            // at" line reads this field, and dsh is a file path, not a URL.
             dsh_bin: paths::resolve_dsh_bin().map(|path| path.display().to_string()),
             shell_version: Some(update::shell_version()),
             ..Default::default()

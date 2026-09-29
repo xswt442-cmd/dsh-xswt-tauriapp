@@ -257,8 +257,8 @@ mod tests {
             );
         }
         let line = format!("dsh web: http://127.0.0.1:3080/?token={token}\n");
-        // Pad to a length whose window start is a continuation byte: that offset
-        // is the one a `from_utf8`-checked read used to reject outright.
+        // Pad to a length whose window start is a continuation byte: a strict
+        // `from_utf8` read fails there, which is why the tail decodes lossily.
         let padding = (0..128usize)
             .find(|pad| {
                 let from = log.len() + pad + line.len() - LOG_TAIL_BYTES as usize;

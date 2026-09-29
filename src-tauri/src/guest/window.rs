@@ -139,9 +139,9 @@ pub fn spawn(app: &AppHandle, shell: &SharedShell) -> Result<(), String> {
             // finds the label taken — the check above is not a lock. That is the
             // same outcome arrived at twice, not a failure: the window exists,
             // and the first caller's `Priming` is the one its load reports
-            // against. Resetting it here is what used to make a working window
-            // invisible, because `on_loaded` then declined to show it and `watch`
-            // stopped watching a hand-off that had not failed.
+            // against. This branch leaves `Priming` set: `on_loaded` shows the
+            // window only while it is set, and `watch` keeps covering the
+            // hand-off that is still in flight.
             if app.get_webview_window(GUEST_LABEL).is_some() {
                 shell_log!("[dsh-harness] the other hand-off built the guest window");
                 return Ok(());

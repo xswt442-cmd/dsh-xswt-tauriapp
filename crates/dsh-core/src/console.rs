@@ -21,9 +21,9 @@ pub fn decode(bytes: &[u8]) -> String {
     if let Ok(text) = std::str::from_utf8(bytes) {
         return text.to_string();
     }
-    // Line by line from here. One OEM byte pair used to drag the *whole* capture
-    // through the code page, so npm's own UTF-8 Chinese a few lines above it came
-    // back as valid-but-wrong GBK — output that reads as decoded and is not. The
+    // Line by line from here, because a capture can mix encodings: pushing the
+    // *whole* buffer through one code page turns npm's UTF-8 Chinese into
+    // valid-but-wrong GBK — output that reads as decoded and is not. The
     // two writers interleave by line at worst, so a line is the largest unit with
     // one encoding.
     let mut text = String::new();

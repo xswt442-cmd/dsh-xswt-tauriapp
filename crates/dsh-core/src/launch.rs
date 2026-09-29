@@ -157,9 +157,9 @@ pub enum ChildState {
 
 /// What a wait that produced no session can be read from.
 ///
-/// Three separate answers, because they used to be collapsed into one sentence
-/// and that sentence was wrong: 0.0.12's handshake regression had a server
-/// listening and serving while the dialog said the process had probably died.
+/// Three separate answers, because the three signals are independent: a server
+/// can be listening and serving while the wait gives up on the child, so one
+/// sentence naming a single cause reads wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BootEvidence {
     /// The child's state when the wait gave up.
@@ -376,8 +376,8 @@ mod tests {
 
     #[test]
     fn each_failed_boot_is_read_from_its_own_evidence() {
-        // The four cases one sentence used to cover, and the reason they had to
-        // be pulled apart: only two of them are about a process that died.
+        // The four failures split on which signals are set, not on one cause:
+        // only two of them are about a process that died.
         assert_eq!(
             boot_failure(BootEvidence {
                 child: ChildState::Exited(Some(1)),

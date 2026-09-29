@@ -249,7 +249,7 @@ mod tests {
     fn only_the_session_itself_stays_in_the_webview() {
         // The guest's first load is the hand-off itself: if the policy treated it
         // as a link out, the window would stay blank forever. The cases below it
-        // are the ones that used to be waved through and cannot be entered —
+        // are the ones that cannot be entered, so they open externally —
         // dsh names its cookie after the authority it was minted for.
         let session = url("http://127.0.0.1:3080/");
 
@@ -323,7 +323,7 @@ mod tests {
         // `cmd /C start` re-parses its argument, so a `&` inside a URL ends the
         // command and whatever follows it runs; `%VAR%` is expanded even inside
         // quotes. A URL is not a token, and the opener has to be one that takes
-        // it whole — which rules out the interpreter this used to go through.
+        // it whole — which rules out any command interpreter.
         assert_eq!(opener_for("windows"), "explorer");
         assert_eq!(opener_for("macos"), "open");
         assert_eq!(opener_for("linux"), "xdg-open");

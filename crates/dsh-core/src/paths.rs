@@ -185,8 +185,7 @@ pub fn node_for_dsh() -> Option<PathBuf> {
 /// a distribution node, `/usr/bin/node` is years behind and its npm installs
 /// into `/usr/local`, which is both a different prefix from the dsh in use and
 /// not writable by an ordinary user. Installing there updates nothing this shell
-/// can see, or fails outright, which is exactly what a launched-from-the-menu
-/// update used to do.
+/// can see, or fails outright.
 ///
 /// The prefix comes from the launcher's own layout on either platform, so a
 /// Windows install answers too — npm's prefix is `<prefix>\node_modules` there,
@@ -369,8 +368,8 @@ mod tests {
         );
         // npm's own layout has no `lib` layer, and the `lib` further in belongs
         // to the package — so the boundary is the first `node_modules`, not the
-        // literal pair `lib/node_modules`. This is the shape that used to answer
-        // `None` for every install made on Windows.
+        // literal pair `lib/node_modules`, so a Windows install — this shape, no
+        // `lib` layer — resolves to its prefix here.
         assert_eq!(
             layout_prefix(
                 Path::new("/nodejs/node_modules/@deepseek-ai/dsh/lib/bin.js"),

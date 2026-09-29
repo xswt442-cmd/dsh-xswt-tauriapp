@@ -211,10 +211,10 @@ mod tests {
 
     #[test]
     fn a_handover_that_failed_elsewhere_names_the_kept_file() {
-        // Windows used to have no way to fail here: `explorer` was spawned and
-        // never looked at, so a machine that could not open the installer read as
-        // one that had. Now the shell API answers, and the answer is shown with
-        // the path that is still on disk — the cache directory, not `/tmp`.
+        // A Windows hand-over reports failure too: `open_installer` reads the
+        // answer back from the shell API, and a machine that could not open the
+        // file is shown as a failure naming the path still on disk — the cache
+        // directory, which outlives the download session.
         let message = handover_message(
             "dsh-xswt-tauriapp_0.0.12_x64-setup.exe",
             Path::new("C:/Users/x/AppData/Local/com.xswt.dsh.tauri/cache/updates/setup.exe"),

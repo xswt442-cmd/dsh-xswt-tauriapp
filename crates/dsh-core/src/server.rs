@@ -78,10 +78,10 @@ pub fn check_port(port: u16) -> PortChoice {
     // token lives somewhere this shell cannot reach and some other program that
     // happens to own the port.
     //
-    // The status code is the whole test. It used to also want the English
-    // `dsh web authentication required` in the body, which meant a localised dsh
-    // was reported as `Occupied` — the one word AGENTS.md rules out for exactly
-    // this case, because "occupied" tells whoever started it that there is a bug.
+    // The status code alone is the test: matching the English body string
+    // `dsh web authentication required` as well would report a localised dsh as
+    // `Occupied` — the one word AGENTS.md rules out for exactly this case,
+    // because "occupied" tells whoever started it that there is a bug.
     // Reading the status alone can call another service's 401 a foreign dsh;
     // guessing wrong that way still points the user at the port that answers,
     // which is the more useful of the two mistakes.

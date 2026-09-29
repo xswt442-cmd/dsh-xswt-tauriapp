@@ -66,10 +66,10 @@ pub fn cmd_command_line(argv: &[String]) -> String {
 ///
 /// Windows cannot run npm's own launcher without help. npm installs `npm` (a
 /// POSIX shell script), `npm.cmd` and `npm.ps1` side by side, and the first is
-/// not a PE image at all: handing that to `CreateProcess` is the `os error 193`
-/// / "%1 不是有效的 Win32 应用程序" the update button used to report, and picking
-/// it out of the directory listing was the whole of that bug — hence the order
-/// in [`crate::paths::NPM_EXE_NAMES`]. A `.cmd` *can* be started directly, but
+/// not a PE image at all: handing it to `CreateProcess` yields `os error 193`
+/// / "%1 不是有效的 Win32 应用程序". The order in
+/// [`crate::paths::NPM_EXE_NAMES`] puts `npm.cmd` ahead of it, so the launcher
+/// never makes that call. A `.cmd` *can* be started directly, but
 /// only through the implicit route `CreateProcess` takes, which leaves the
 /// interpreter's switches and the quoting of the line to whoever wrote the
 /// launcher. Going through `cmd.exe` explicitly is what makes `/d` (no AutoRun),
