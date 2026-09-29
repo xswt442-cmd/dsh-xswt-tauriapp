@@ -1,6 +1,6 @@
 {
   "name": "dsh-xswt-tauriapp",
-  "version": "0.0.15",
+  "version": "0.1.0",
   "private": true,
   "description": "DeepSeek Harness 的轻量 Tauri 桌面外壳：复用或启动本机 dsh web 服务并嵌入原生窗口，启动时检查 dsh 更新。A lightweight Tauri desktop shell for DeepSeek Harness: reuses or starts a local dsh web server, embeds it in a native window, and offers dsh updates on launch.",
   "license": "MIT",

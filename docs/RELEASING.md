@@ -17,9 +17,10 @@ commit into `main`. Only release-ready changes belong on `main`.
      Entries were written under it as they were made, so this is a rename rather
      than a writing job, and `check-docs.mjs` wants that section present, first,
      and exactly one per file at every commit — including this one.
-   - the deb example in both READMEs: `dsh-xswt-tauriapp_X.Y.Z_amd64.deb`
    - both `Cargo.lock` files, which any cargo command rewrites to match — check
      `git status` before committing, because nothing else notices if they lag.
+   The READMEs need no edit at release time: their install commands name the
+   bundles with a wildcard (`dsh-xswt-tauriapp_*_amd64.deb`).
 2. Run:
 
    ```sh
