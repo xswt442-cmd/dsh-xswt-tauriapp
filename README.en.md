@@ -30,6 +30,7 @@ A lightweight Tauri desktop shell for DeepSeek Harness, and a **desktop harness 
 | Windows (NSIS installer) | Supported; the installer and GUI are exercised in daily use, and the hand-off and first navigation have been measured |
 | macOS (dmg) | Build wired up, unsigned; the GUI has not been exercised |
 | WSLg | Runs; WebKitGTK's GPU passthrough is unreliable, so set `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSLg has no status-bar host, so a tray icon has nowhere to appear; shortcuts work, provided the X11 backend is used. WSLg also renders at scale 1 whatever the Windows display scale is, so on a 125% or 150% display its windows are smaller than native ones: zoom with `Ctrl/Cmd+=`, which is remembered, or pin `DSH_SHELL_ZOOM` |
+| dsh | The declared floor is `0.1.5-rc.1`. CI's boot-check covers `0.1.5-rc.1`, `latest` and `0.2.0-rc.1`; installing an older host resolves each component through that host's own caret ranges, so the `0.1.5-rc.1` leg pins its dependency tree with `--before 2026-09-11T00:00:00Z` |
 
 That the first navigation carries the `SameSite=Strict` cookie has been measured on Linux / WebKitGTK and on Windows / WebView2; macOS relies on its webview treating an initiator-less navigation as same-site, which has not been measured.
 
