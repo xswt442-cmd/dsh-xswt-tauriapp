@@ -11,6 +11,7 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 - The README's "How it works" chapter is one table and two paragraphs in place of six subsections, 189 lines down to 122; the constraints themselves stay in `AGENTS.md` and in the comments beside the code that enforces them.
 - Two README statements follow what 0.0.15 does: a non-empty `DSH_HOME` is honoured as written, and the stub's variable list gains `DSH_TAURIAPP_INSTALL_DIRS` with `WAYLAND_DISPLAY` added to the no-desktop-session test.
 - The README's install commands no longer name a version, `dnf` is documented beside `apt`, and Linux automatic updates are stated to pick only the `.deb`.
+- Three README passages became tables and short rows: the marketplace stub's variables are listed in a table, the platform table carries the first-navigation measurement, and the two closing paragraphs of How it works are folded into its rows.
 
 ## 0.0.15 - 2026-09-29
 
