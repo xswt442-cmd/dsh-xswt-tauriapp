@@ -5,6 +5,10 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+### Maintenance
+
+- Each `boot-check` dsh line carries its own `--before` date in a matrix column, and the install step and the step naming the host under test read that column. `@0.2.0-rc.1` is pinned to `2026-09-29T00:00:00Z`, so that leg checks the rc.1 build (`0.2.0-rc.2` published on 09-29).
+
 ## 0.0.15 - 2026-09-29
 
 ### Maintenance

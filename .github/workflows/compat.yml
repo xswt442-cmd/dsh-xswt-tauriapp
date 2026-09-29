@@ -100,7 +100,7 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml --all-targets
 
   boot-check:
-    name: dsh ${{ matrix.dsh-spec }} (${{ matrix.os }})
+    name: dsh ${{ matrix.spec }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # A guard on top of the code's own deadline: a leg that hangs must cost
     # minutes, not the default six hours.
@@ -110,10 +110,24 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         # Pin the declared compatibility line independently from the moving
-        # latest channel, so a regression is attributable to a known build.
-        # `next` carries the candidate line — `latest` is still 0.1.7-rc.2 — and
-        # that is the line the shell is expected to run against next.
-        dsh-spec: ['@0.1.5-rc.1', '@latest', '@0.2.0-rc.1']
+        # latest channel, so a regression is attributable to a known build. One row
+        # per line, and `before` travels with it: both steps read these columns.
+        #
+        # A bare specifier names a version, not a build: that version's own ranges
+        # resolve forward to whatever its line's newest pieces are today.
+        include:
+          # 0.1.5-rc.1 as it was when current. Its dependencies are carets
+          # (`"@deepseek-ai/dsh-base": "^0.1.5-rc.1"`), so an unpinned install takes
+          # the newest 0.1.x build of every piece; since 2026-09-23 that mix exits
+          # with "plugin tree failed to load" before it ever listens.
+          - { spec: '@0.1.5-rc.1', before: '2026-09-11T00:00:00Z' }
+          # The moving channel: what most users actually run, and it has to keep
+          # working with no help from this file.
+          - { spec: '@latest', before: '' }
+          # The candidate line the shell is expected to run against next.
+          # `0.2.0-rc.2` published 2026-09-29T09:56Z, so this date keeps the leg a
+          # statement about `0.2.0-rc.1` (2026-09-28T12:34Z) and its own tree.
+          - { spec: '@0.2.0-rc.1', before: '2026-09-29T00:00:00Z' }
     steps:
       - uses: actions/checkout@v5
 
@@ -130,16 +144,7 @@ jobs:
       - name: install dsh
         shell: bash
         env:
-          # The compatibility floor is a statement about a *build*, and a bare
-          # specifier no longer installs one: `@0.1.5-rc.1`'s ranges resolve
-          # forward to its own line's newest pieces, and since 0.1.5-rc.3 was
-          # published (2026-09-22) that mixture does not boot at all. npm nests
-          # `@deepseek-ai/dsh-sandbox-local` under `dsh-base`, the rc.1 launcher
-          # cannot resolve it from there, and dsh exits with "plugin tree failed
-          # to load" before it ever listens — which is what this leg had been
-          # reporting since the 23rd. `--before` installs the tree the version
-          # had when it was current.
-          DSH_BEFORE: ${{ matrix.dsh-spec == '@0.1.5-rc.1' && '2026-09-11T00:00:00Z' || '' }}
+          DSH_BEFORE: ${{ matrix.before }}
         run: |
           # A version can appear in the registry's metadata before its tarball
           # has propagated to every CDN edge, and that surfaces as a 404 on a
@@ -149,30 +154,30 @@ jobs:
           before=()
           [ -n "$DSH_BEFORE" ] && before=(--before="$DSH_BEFORE")
           for attempt in 1 2 3 4; do
-            if npm i -g "@deepseek-ai/dsh${{ matrix.dsh-spec }}" "${before[@]}"; then
+            if npm i -g "@deepseek-ai/dsh${{ matrix.spec }}" "${before[@]}"; then
               exit 0
             fi
             echo "::warning::install attempt ${attempt} failed; retrying in 20s"
             sleep 20
           done
-          echo "::error::could not install @deepseek-ai/dsh${{ matrix.dsh-spec }}"
+          echo "::error::could not install @deepseek-ai/dsh${{ matrix.spec }}"
           exit 1
 
       - name: report the host version under test
         shell: bash
         env:
-          DSH_BEFORE: ${{ matrix.dsh-spec == '@0.1.5-rc.1' && '2026-09-11T00:00:00Z' || '' }}
+          DSH_BEFORE: ${{ matrix.before }}
         run: |
           # `npm root -g` is a Windows path on Windows. Handing it to node
-          # through the environment and joining it there avoids interpolating
-          # backslashes into a JS string literal, where they would be read as
-          # escapes — which is what broke this step on windows-latest.
+          # through the environment and joining it there keeps backslashes out of
+          # the JS string literal, where each one would be read as an escape
+          # sequence.
           version="$(DSH_NPM_ROOT="$(npm root -g)" node -e "
             const path = require('node:path');
             const manifest = path.join(process.env.DSH_NPM_ROOT, '@deepseek-ai', 'dsh', 'package.json');
             process.stdout.write(require(manifest).version);
           ")"
-          echo "dsh host under test: $version (${{ matrix.dsh-spec }}${DSH_BEFORE:+ resolved as of $DSH_BEFORE})"
+          echo "dsh host under test: $version (${{ matrix.spec }}${DSH_BEFORE:+ resolved as of $DSH_BEFORE})"
 
       # This is the shell's own discovery path: port band, token read from the
       # server log, two-step handshake, then a spawned server that must outlive
@@ -189,11 +194,10 @@ jobs:
           # and hangs until the job is cancelled. A file handle is held just as
           # harmlessly and lets the parent exit.
           out="$RUNNER_TEMP/launch.out"
-          # A launch that never reaches the parse below used to fail this step
-          # with an empty log: its progress and its reason go to the redirect,
-          # and only the *later* checks printed that file. So every failure path
-          # now prints the redirect, and the server's own stderr with it — a dsh
-          # that refuses to boot says so there and nowhere else.
+          # Every failure path prints the redirect and the server's own stderr: a
+          # launch's progress and its reason reach nothing else, so a dsh that
+          # refuses to boot says so there, and a launch that never reaches the
+          # parse below still leaves its reason in the log.
           fail() {
             echo "::error::$1"
             echo "──── launch ────"
