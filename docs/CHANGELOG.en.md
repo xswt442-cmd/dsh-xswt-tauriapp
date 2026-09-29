@@ -5,9 +5,12 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Unreleased
 
+## 0.0.15 - 2026-09-29
+
 ### Maintenance
 
 - `RELEASING.md` and both changelogs moved under `docs/`. The repository root keeps `README.md`, `README.en.md`, `LICENSE`, and the files tooling looks up by name: `AGENTS.md` and `CLAUDE.md`.
+- The compatibility matrix covers `0.2.0-rc.1`: it tested only `0.1.5-rc.1` and `latest`, and `latest` is still `0.1.7-rc.2`.
 
 ## 0.0.14 - 2026-09-28
 

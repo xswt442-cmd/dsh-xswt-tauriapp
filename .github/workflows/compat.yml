@@ -111,7 +111,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         # Pin the declared compatibility line independently from the moving
         # latest channel, so a regression is attributable to a known build.
-        dsh-spec: ['@0.1.5-rc.1', '@latest']
+        # `next` carries the candidate line — `latest` is still 0.1.7-rc.2 — and
+        # that is the line the shell is expected to run against next.
+        dsh-spec: ['@0.1.5-rc.1', '@latest', '@0.2.0-rc.1']
     steps:
       - uses: actions/checkout@v5
 

@@ -5,9 +5,12 @@ Release Notes 由对应版本段生成；最新版本在前。
 
 ## Unreleased
 
+## 0.0.15 - 2026-09-29
+
 ### 维护
 
 - `RELEASING.md` 与两份 CHANGELOG 归入 `docs/`；仓库根目录保留 `README.md`、`README.en.md`、`LICENSE`，以及按名字被工具查找的 `AGENTS.md` 与 `CLAUDE.md`。
+- 兼容检查覆盖 `0.2.0-rc.1`：此前矩阵只测 `0.1.5-rc.1` 与 `latest`，而 `latest` 仍是 `0.1.7-rc.2`。
 
 ## 0.0.14 - 2026-09-28
 
