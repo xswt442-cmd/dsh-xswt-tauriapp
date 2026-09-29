@@ -9,6 +9,8 @@ For Chinese, see [CHANGELOG.md](CHANGELOG.md).
 
 - Each `boot-check` dsh line carries its own `--before` date in a matrix column, and the install step and the step naming the host under test read that column. `@0.2.0-rc.1` is pinned to `2026-09-29T00:00:00Z`, so that leg checks the rc.1 build (`0.2.0-rc.2` published on 09-29).
 - The README's "How it works" chapter is one table and two paragraphs in place of six subsections, 189 lines down to 122; the constraints themselves stay in `AGENTS.md` and in the comments beside the code that enforces them.
+- Two README statements follow what 0.0.15 does: a non-empty `DSH_HOME` is honoured as written, and the stub's variable list gains `DSH_TAURIAPP_INSTALL_DIRS` with `WAYLAND_DISPLAY` added to the no-desktop-session test.
+- The README's install commands no longer name a version, `dnf` is documented beside `apt`, and Linux automatic updates are stated to pick only the `.deb`.
 
 ## 0.0.15 - 2026-09-29
 
