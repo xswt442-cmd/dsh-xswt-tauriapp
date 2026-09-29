@@ -124,9 +124,8 @@ const manifestVersion = (file) => {
   return found[1]
 }
 
-// The five version fields move together, and until now the only thing that
-// checked them was `release.yml` — at tag time, long after a drift could be
-// introduced on `dev`.
+// The five version fields move together, and a drift must surface here rather
+// than at tag time, where `release.yml` compares the same five.
 const fields = [
   ['package.json', JSON.parse(read('package.json')).version],
   ['src-tauri/tauri.conf.json', JSON.parse(read('src-tauri/tauri.conf.json')).version],

@@ -144,8 +144,8 @@ function renderFailure() {
   el("failure-message").textContent = shell?.error || "未知错误";
   // Only Rust knows where the logs are: the directory follows `DSH_HOME` when it
   // is set, and otherwise the home directory — `HOME` on one platform,
-  // `USERPROFILE` on another. This used to print a `~/.dsh/launcher/logs` guess,
-  // which read as fact on a Windows machine and on any `DSH_HOME` at all.
+  // `USERPROFILE` on another. A path computed here would be a guess about the
+  // host, so the line prints `log_dir` or says the shell reported nothing.
   el("failure-logdir").textContent = shell?.log_dir || "未知：外壳未能报告日志目录";
   const retry = el("btn-retry");
   retry.disabled = false;
@@ -409,8 +409,8 @@ function showDialog() {
 function renderDialog() {
   const report = update?.report;
   el("current-version").textContent = report?.current || shell?.current_version || "—";
-  // The resolved launcher. This line used to show the loopback URL, which is not
-  // where dsh is installed.
+  // The launcher executable the shell resolved; a loopback URL is an address,
+  // not an installation location.
   el("dsh-location").textContent = shell?.dsh_bin || "—";
   if (update?.error) showInlineError(`更新检查失败：${update.error}`);
   else el("check-error").classList.add("hidden");

@@ -46,7 +46,7 @@ const CHECKSUMS = 'SHA256SUMS'
  * the stub's mirror of the shell's own `API_TIMEOUT` and `DOWNLOAD_TIMEOUT`
  * (`crates/dsh-core/src/self_update.rs`). A `fetch` with no deadline does not
  * fail, it waits — and this one runs on a harness's boot path, where a stalled
- * connection used to mean a silent hang and no log line at all.
+ * connection would hang there and leave no log line to explain it.
  */
 const API_TIMEOUT = 15_000
 const DOWNLOAD_TIMEOUT = 300_000
@@ -260,21 +260,13 @@ function installedIn(dir, platform) {
  * design: this only decides whether the plugin stays quiet, and a miss costs one
  * redundant download rather than a wrong action.
  *
- * On macOS and Linux the directories used to be hardcoded absolute paths —
- * `/Applications`, `/usr/bin` — which made this a question about the machine
- * running the tests rather than about the host a test names: install the
- * application to try it, and every test that expects a download starts finding an
- * installed copy instead. The fix was a fork on whether `env` *was* `process.env`
- * (object identity), and that left the tested path and the shipped path as
- * different code: a fixture could only ever express `$HOME/.local/bin`, while
- * every real host probed the absolute directories.
- *
- * The directories are data now. `DSH_TAURIAPP_INSTALL_DIRS` — a path list, so
- * split on `path.delimiter` — replaces them wholesale for a caller describing a
- * host it is not on, exactly as `LOCALAPPDATA` and `ProgramFiles` already did, and
- * what a directory *contains* is decided by `platform`. One code path, so a test
- * can name any host's filesystem, installed or not, and the entry point can be
- * driven on a machine that really has the application.
+ * The directories are data: `DSH_TAURIAPP_INSTALL_DIRS` — a path list, so split
+ * on `path.delimiter` — replaces the platform defaults wholesale for a caller
+ * describing a host it is not on, exactly as `LOCALAPPDATA` and `ProgramFiles`
+ * already do, and what a directory *contains* is decided by `platform`. Shipped
+ * code and a test read the same list, so a test can name any host's filesystem,
+ * installed or not, and the entry point can be driven on a machine that really
+ * has the application.
  * @param platform - `process.platform`.
  * @param env - the environment to read.
  * @returns candidate paths, any of which means "already installed".

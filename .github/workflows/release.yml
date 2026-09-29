@@ -248,11 +248,12 @@ jobs:
 
       # The updaters choose an installer by its suffix, and the list of suffixes
       # lives in `self_update.rs` — so this reads that list rather than keeping a
-      # third copy of it. A renamed `productName`, a bundle leg that quietly
-      # produced nothing, or a suffix added on one side only all used to go green
-      # here, and then the dialog printed an `apt install` line for a file nobody
-      # attached. A `sed` that finds nothing means the array changed shape, which
-      # is this step failing on purpose rather than the check passing vacuously.
+      # third copy of it. A renamed `productName`, a bundle leg that produced
+      # nothing, and a suffix only one side lists each leave a suffix with no
+      # matching artifact, which would otherwise reach a user as a dialog
+      # printing an `apt install` line for a file nobody attached. A `sed` that
+      # finds nothing means the array changed shape, so the step says that rather
+      # than passing vacuously.
       - name: the artifacts are what the updaters will ask for
         shell: bash
         run: |
@@ -310,13 +311,12 @@ jobs:
           # Three things can fail without the release being at fault: the branch
           # cannot be fetched, it has no docs/CHANGELOG.md, or it has no section for
           # this version. All three are conditions rather than steps, because the worst
-          # outcome has to be the tag's own changelog — what every release used
-          # before this existed — and never a failed release. Re-running a tag
-          # cut before the changelog moved into `docs/` lands in that worst case:
-          # the frozen definition looks for the root path, the default branch no
-          # longer has one, and the notes come from that tag's own changelog. The
-          # file is grepped rather than a pipe into `grep -q`, whose early exit can
-          # SIGPIPE the writer and, under `pipefail`, read as "no match" on a match.
+          # outcome has to be the tag's own changelog, and never a failed release. A
+          # tag whose own workflow reads the changelog from the repository root lands
+          # in that case: the default branch carries no root changelog, so the notes
+          # come from that tag's copy. The file is grepped rather than a pipe into
+          # `grep -q`, whose early exit can SIGPIPE the writer and, under `pipefail`,
+          # read as "no match" on a match.
           if git fetch --depth=1 origin "$branch" \
              && git show "FETCH_HEAD:docs/CHANGELOG.md" > "$live" \
              && grep -qE "$pattern" "$live"; then

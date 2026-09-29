@@ -3,9 +3,9 @@ import { matchRelease } from './changelog.mjs'
 
 const version = process.argv[2]
 // A prerelease tail is allowed here because `release.yml` cuts `vX.Y.Z-rc.N` tags
-// and marks such a release as one. Rejecting the version this script is *given*
-// broke the notes step inside `set -euo pipefail` for exactly the tags the
-// workflow supports.
+// and marks such a release as one. This guard reads the version the script is
+// given, so a stricter pattern fails the notes step under `set -euo pipefail` for
+// exactly the tags the workflow supports.
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version ?? '')) {
   console.error('usage: node scripts/release-notes.mjs X.Y.Z')
   process.exit(2)

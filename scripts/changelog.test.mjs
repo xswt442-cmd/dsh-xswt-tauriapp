@@ -5,11 +5,9 @@ import { matchRelease, matchUnreleased, UNRELEASED } from './changelog.mjs'
 /**
  * The headings `check-docs.mjs` and `release-notes.mjs` share.
  *
- * These cases exist because the two scripts used to spell the same heading
- * differently, and a heading neither recognised left both changelogs parsing to
- * an empty list — which the bilingual comparison then passed as agreement. So the
- * interesting assertions here are the ones that must NOT match: a shape the
- * checker silently stops seeing is the shape that breaks the guard.
+ * The assertions that must NOT match carry the weight: a heading shape this file
+ * stops recognising leaves a changelog with no readable release, and
+ * `check-docs.mjs` fails on that rather than comparing what two readers saw.
  */
 
 test('a released section is read the way docs/RELEASING.md asks for it', () => {
@@ -35,8 +33,7 @@ test('the unreleased section is its own thing, not a version', () => {
 })
 
 test('a heading the checker cannot read is never mistaken for a release', () => {
-  // Every one of these used to be matched by one of the two scripts and skipped
-  // by the other. Now neither matches, and `check-docs.mjs` fails on a changelog
+  // None of these is a release heading, and `check-docs.mjs` fails on a changelog
   // with nothing readable in it rather than comparing two empty lists.
   for (const line of [
     '## [0.0.13] - 2026-09-24',

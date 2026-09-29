@@ -5,14 +5,11 @@
  * `## X.Y.Z - YYYY-MM-DD` is a released one. Both scripts that read a changelog
  * go through this file, and that sharing is the point.
  *
- * `check-docs.mjs` used to anchor on the plain form and `release-notes.mjs` on
- * either, so a heading written a different way — brackets, an em dash before the
- * date, a `v` prefix — made *both* changelogs parse to no releases at all. The
- * bilingual check then compared two empty lists, passed, and the guard that
- * exists to catch a one-sided entry said nothing while the release notes
- * silently degraded to a bare `Release X.Y.Z`. `check-docs.mjs` now fails on a
- * changelog it cannot read a version out of, which is what makes the shared
- * heading the single source rather than a second opinion.
+ * A heading written any other way — brackets, an em dash before the date, a `v`
+ * prefix — matches neither form here, so a changelog reads as holding no releases
+ * at all. `check-docs.mjs` fails on that rather than comparing two empty lists as
+ * agreement, which is what makes this file the single source of the heading
+ * instead of two readers that can disagree.
  */
 const RELEASE_HEADING =
   /^##\s+(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\s+-\s+(\d{4}-\d{2}-\d{2}))?\s*$/
