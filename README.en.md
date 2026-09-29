@@ -81,9 +81,9 @@ The shell shows the `bootstrap` page first while it discovers the server and che
 | `DSH_SHELL_RELEASES_API` | Overrides the GitHub Releases API this application's own updater reads when non-empty; this repository's `releases/latest` otherwise. For tests and mirrors |
 | `DSH_SHELL_ALLOW_MULTIPLE` | Setting it at all lets several shells run at once — an empty value and `0` both count as set; by default a second launch only raises the one already running |
 | `DSH_SHELL_DEBUG` | Setting it at all, even to an empty value, writes the hand-off, navigation and update-check log to stderr; a debug build always does |
-| `DSH_SHELL_DEVTOOLS` | Setting it at all, even to an empty value, gives a release build its DevTools; a debug build needs nothing (see "Menus, tray and shortcuts") |
+| `DSH_SHELL_DEVTOOLS` | Setting it at all, even to an empty value, gives a release build its DevTools; a debug build needs nothing |
 | `DSH_SHELL_ZOOM` | The dsh window's initial zoom factor, which wins over the remembered one: it has to parse as a number above `0` (an empty value, `0` and a typo are all ignored, leaving the remembered factor), and an out-of-range one is clamped to 0.3–3.0 |
-| `DSH_SHELL_WAYLAND` | On Linux, setting it at all stops the switch to the X11 backend (see "Menus, tray and shortcuts") — `0` opts out just as much as `1`, which is only the convention; an explicit `GDK_BACKEND` is left alone the same way |
+| `DSH_SHELL_WAYLAND` | On Linux, setting it at all stops the switch to the X11 backend — `0` opts out just as much as `1`, which is only the convention; an explicit `GDK_BACKEND` is left alone the same way |
 
 ## How it works
 

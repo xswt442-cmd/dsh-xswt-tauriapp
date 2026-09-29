@@ -81,9 +81,9 @@ pnpm tauri build --bundles deb,rpm,appimage
 | `DSH_SHELL_RELEASES_API` | 非空时覆盖外壳自身更新读取的 GitHub Releases API 地址，否则用本仓库的 `releases/latest`；供测试与镜像使用 |
 | `DSH_SHELL_ALLOW_MULTIPLE` | 只要被设置就允许同时运行多个外壳——空值与 `0` 同样算设置；默认第二次启动只把已在运行的那个提到前面 |
 | `DSH_SHELL_DEBUG` | 只要被设置就把交接、导航与更新检查的日志写到 stderr，空值也算设置；debug 构建无需设置，总是输出 |
-| `DSH_SHELL_DEVTOOLS` | 只要被设置就在发布构建里提供开发者工具，空值也算设置；debug 构建无需设置（见「菜单、托盘与快捷键」） |
+| `DSH_SHELL_DEVTOOLS` | 只要被设置就在发布构建里提供开发者工具，空值也算设置；debug 构建无需设置 |
 | `DSH_SHELL_ZOOM` | dsh 窗口的初始缩放因子，优先于记忆值：能解析成大于 `0` 的数字才生效（空值、`0` 与拼错的值一律忽略，回落记忆值），过界的值收敛到 0.3–3.0 |
-| `DSH_SHELL_WAYLAND` | 在 Linux 上只要被设置就不切换到 X11 后端——写成 `0` 同样是退出，习惯上置 `1`（见「菜单、托盘与快捷键」）；显式设置了 `GDK_BACKEND` 时外壳同样不干预 |
+| `DSH_SHELL_WAYLAND` | 在 Linux 上只要被设置就不切换到 X11 后端——写成 `0` 同样是退出，习惯上置 `1`；显式设置了 `GDK_BACKEND` 时外壳同样不干预 |
 
 ## 工作原理
 
