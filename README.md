@@ -1,5 +1,7 @@
 # dsh-xswt-tauriapp
 
+**鉴于官方桌面版的推出，本仓库于 2026-09-30 起停止维护。**
+
 [中文](./README.md) | [English](./README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
@@ -11,7 +13,7 @@
 [![compat](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml/badge.svg)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml)
 [![downloads](https://img.shields.io/github/downloads/xswt442-cmd/dsh-xswt-tauriapp/total?label=downloads)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases)
 
-DeepSeek Harness 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness / runtime supervisor**：窗口、服务进程、会话交接、菜单与快捷键、更新与外链由外壳负责，页面内容由 dsh 自己负责。外壳不修改 dsh，也不向它的页面注入脚本。
+DeepSeek Harness (Web) 的轻量 Tauri 桌面外壳，也是 dsh 的 **desktop harness / runtime supervisor**：窗口、服务进程、会话交接、菜单与快捷键、更新与外链由外壳负责，页面内容由 dsh 自己负责。外壳不修改 dsh，也不向它的页面注入脚本。
 
 ## 功能
 

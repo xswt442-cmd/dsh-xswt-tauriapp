@@ -1,5 +1,7 @@
 # dsh-xswt-tauriapp
 
+**Following the release of the official desktop app, this repository is no longer maintained as of 2026-09-30.**
+
 [中文](./README.md) | [English](./README.en.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
@@ -11,7 +13,7 @@
 [![compat](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml/badge.svg)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/actions/workflows/compat.yml)
 [![downloads](https://img.shields.io/github/downloads/xswt442-cmd/dsh-xswt-tauriapp/total?label=downloads)](https://github.com/xswt442-cmd/dsh-xswt-tauriapp/releases)
 
-A lightweight Tauri desktop shell for DeepSeek Harness, and a **desktop harness / runtime supervisor** for dsh: the shell owns windows, the server process, the session hand-off, menus and shortcuts, updates and external links, while dsh owns its own page. The shell does not modify dsh and injects no script into its page.
+A lightweight Tauri desktop shell for DeepSeek Harness (Web), and a **desktop harness / runtime supervisor** for dsh: the shell owns windows, the server process, the session hand-off, menus and shortcuts, updates and external links, while dsh owns its own page. The shell does not modify dsh and injects no script into its page.
 
 ## Features
 
